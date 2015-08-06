@@ -1,12 +1,13 @@
 #!/usr/bin/Rscript
+# Performs the analysis to select possible pairs for cointegration.
+# TODO: Make cmd arguments for: index.path, period.start, period.end, corr.threshold.
+
 
 suppressMessages(library(dplyr))
 suppressMessages(library(magrittr))
 suppressMessages(library(xts))
 
 invisible(Sys.setlocale("LC_TIME", "en_US.UTF-8"))
-
-# Make arguments from the index.path and periods.
 
 
 ########################################################################################################################
@@ -23,11 +24,11 @@ index.table = index.path %>%
   filter(!is.na(From.Date), !is.na(To.Date), Rows.Number > 0)
 message("Read ", nrow(index.table), " non-empty rows")
 
-period.start = as.Date("2015-01-01")
+period.start = as.Date("2010-01-01")
 period.end = as.Date("2015-06-30")
 message("Filtering rows available from ", period.start, " to ", period.end)
 index.table = index.table %>% 
-  filter(From.Date <= period.start, To.Date >= period.end) %>% top_n(10, Symbol)
+  filter(From.Date <= period.start, To.Date >= period.end) %>% top_n(100, Symbol)
 message(nrow(index.table), " rows to process")
 
 
@@ -98,4 +99,42 @@ invisible(apply(index.table, 1, function(row) {
   message(symbol, " done")
 }))
 
-all.returns
+
+########################################################################################################################
+# Returns analysis: candidates.
+########################################################################################################################
+
+
+# Vidyamurthy (Pairs Trading: Quantitative Methods and Analysis) suggests running risk-factor analysis first,
+# then using innovations of factor components. We're using innovations of total returns, including a specific component.
+# It's much simpler and for daily and lower frequency seems to be a good approx.
+
+# Compute usual stats
+stats.mu = apply(all.returns, 2, mean)
+stats.sigma2 = apply(all.returns, 2, var)
+stats.sigma = sqrt(stats.sigma2)
+stats.cov.matrix = var(all.returns)
+stats.corr.matrix = cor(all.returns)
+
+# Finds the candidates
+select.candidates = function(stats.corr.matrix, corr.threshold) {
+  patched.corr.matrix = abs(stats.corr.matrix)
+  patched.corr.matrix[row(patched.corr.matrix) >= col(patched.corr.matrix)] = 0
+  correlations = patched.corr.matrix[order(patched.corr.matrix, decreasing=TRUE)]
+  
+  tmp.first = c()
+  tmp.second = c()
+  tmp.corr = c()
+  for (item in correlations) {
+    if (item > corr.threshold) {
+      dim = which(patched.corr.matrix == item, arr.ind=TRUE)
+      tmp.first = c(tmp.first, rownames(stats.corr.matrix)[dim[1]])
+      tmp.second = c(tmp.second, colnames(stats.corr.matrix)[dim[2]])
+      tmp.corr = c(tmp.corr, stats.corr.matrix[dim])
+    }
+  }
+  data.frame(First.Symbol=tmp.first, Second.Symbol=tmp.second, Correlation=tmp.corr)
+}
+
+candidates = select.candidates(stats.corr.matrix, corr.threshold=0.95)
+candidates
