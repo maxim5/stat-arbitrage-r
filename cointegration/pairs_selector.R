@@ -5,7 +5,7 @@
 
 suppressMessages(library(dplyr))
 suppressMessages(library(magrittr))
-suppressMessages(library(xts))
+suppressMessages(library(tseries))
 
 invisible(Sys.setlocale("LC_TIME", "en_US.UTF-8"))
 
@@ -24,11 +24,11 @@ index.table = index.path %>%
   filter(!is.na(From.Date), !is.na(To.Date), Rows.Number > 0)
 message("Read ", nrow(index.table), " non-empty rows")
 
-period.start = as.Date("2010-01-01")
+period.start = as.Date("2015-01-01")
 period.end = as.Date("2015-06-30")
 message("Filtering rows available from ", period.start, " to ", period.end)
 index.table = index.table %>% 
-  filter(From.Date <= period.start, To.Date >= period.end) %>% top_n(100, Symbol)
+  filter(From.Date <= period.start, To.Date >= period.end) # %>% top_n(2000, Symbol)
 message(nrow(index.table), " rows to process")
 
 
@@ -76,6 +76,7 @@ check.sanity = function(symbol, current.frame) {
 rows.to.read = as.numeric(max(index.table$To.Date) - period.start)
 
 all.returns = NULL
+all.innovations = NULL
 invisible(apply(index.table, 1, function(row) {
   symbol = row["Symbol"]
   
@@ -90,18 +91,21 @@ invisible(apply(index.table, 1, function(row) {
     return (0)
   }
 
-  if (is.null(all.returns)) {
-    all.returns <<- data.frame(matrix(, nrow=nrow(current.frame) - 1, ncol=0))
-    rownames(all.returns) <<- current.frame$Date[-1]
+  if (is.null(all.returns) || is.null(all.innovations)) {
+    all.returns <<- data.frame(matrix(, nrow=nrow(current.frame), ncol=0))
+    rownames(all.returns) <<- current.frame$Date
+    all.innovations <<- data.frame(matrix(, nrow=nrow(current.frame) - 1, ncol=0))
+    rownames(all.innovations) <<- current.frame$Date[-1]
   }
-  all.returns[[symbol]] <<- diff(log(current.frame$Price))
-  
+  all.returns[[symbol]] <<- log(current.frame$Price)
+  all.innovations[[symbol]] <<- diff(log(current.frame$Price))
+
   message(symbol, " done")
 }))
 
 
 ########################################################################################################################
-# Returns analysis: candidates.
+# Returns innovations analysis: candidates.
 ########################################################################################################################
 
 
@@ -110,31 +114,74 @@ invisible(apply(index.table, 1, function(row) {
 # It's much simpler and for daily and lower frequency seems to be a good approx.
 
 # Compute usual stats
-stats.mu = apply(all.returns, 2, mean)
-stats.sigma2 = apply(all.returns, 2, var)
+message("Computing covariance and correlation matrices")
+stats.mu = apply(all.innovations, 2, mean)
+stats.sigma2 = apply(all.innovations, 2, var)
 stats.sigma = sqrt(stats.sigma2)
-stats.cov.matrix = var(all.returns)
-stats.corr.matrix = cor(all.returns)
+stats.cov.matrix = var(all.innovations)
+stats.corr.matrix = cor(all.innovations)
 
 # Finds the candidates
 select.candidates = function(stats.corr.matrix, corr.threshold) {
+  message("Selecting the candidates from the correletion matrix with threshold=", corr.threshold)
+  
   patched.corr.matrix = abs(stats.corr.matrix)
   patched.corr.matrix[row(patched.corr.matrix) >= col(patched.corr.matrix)] = 0
-  correlations = patched.corr.matrix[order(patched.corr.matrix, decreasing=TRUE)]
   
-  tmp.first = c()
-  tmp.second = c()
-  tmp.corr = c()
-  for (item in correlations) {
-    if (item > corr.threshold) {
-      dim = which(patched.corr.matrix == item, arr.ind=TRUE)
-      tmp.first = c(tmp.first, rownames(stats.corr.matrix)[dim[1]])
-      tmp.second = c(tmp.second, colnames(stats.corr.matrix)[dim[2]])
-      tmp.corr = c(tmp.corr, stats.corr.matrix[dim])
+  result.size = length(patched.corr.matrix[patched.corr.matrix > corr.threshold])
+  message("Estimated number of candidates: ", result.size)
+  
+  row.names = rownames(patched.corr.matrix)
+  col.names = colnames(patched.corr.matrix)
+  size = nrow(patched.corr.matrix)
+  
+  index = 1
+  progress.quantiles = round(quantile(1:result.size, seq(0.1, 0.9, by=0.1)))
+  result.frame = data.frame(First.Symbol=rep(NA, result.size),
+                            Second.Symbol=rep(NA, result.size),
+                            Correlation=rep(NA, result.size))
+  for (i in 1:(size-1)) {
+    row.i = patched.corr.matrix[i, ]
+    for (j in (i+1):size) {
+      if (row.i[j] > corr.threshold) {
+        result.frame[index, ] = c(row.names[i], col.names[j], stats.corr.matrix[i, j])
+        index = index + 1
+        if (index %in% progress.quantiles) {
+          message("...in progress ", round(100 * index / result.size), "%")
+        }
+      }
     }
   }
-  data.frame(First.Symbol=tmp.first, Second.Symbol=tmp.second, Correlation=tmp.corr)
+  
+  result.frame[order(result.frame$Correlation, decreasing=TRUE), ]
 }
 
-candidates = select.candidates(stats.corr.matrix, corr.threshold=0.95)
-candidates
+candidates = select.candidates(stats.corr.matrix, corr.threshold=0.85)
+
+message("Selected candidates:", nrow(candidates))
+print(head(candidates, n=10))
+
+
+########################################################################################################################
+# Returns analysis: test for stationarity.
+########################################################################################################################
+
+
+invisible(apply(candidates, 1, function(column) {
+  symbol1 = column["First.Symbol"]
+  symbol2 = column["Second.Symbol"]
+  gamma.coeff = stats.cov.matrix[symbol1, symbol2] / stats.cov.matrix[symbol2, symbol2]
+  
+  series1 = all.returns[[symbol1]]
+  series2 = gamma.coeff * all.returns[[symbol2]]
+  diff = series1 - series2
+  
+  # Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test
+  test = suppressWarnings(kpss.test(diff))
+  if (test$statistic < 0.1) {
+    message("Pair ", symbol1, "/", symbol2, " passed the KPSS test with gamma=", gamma.coeff,
+            ". KPSS-statistic=", test$statistic, ". innov-corr=", column["Correlation"])
+  }
+}))
+
+message("Selection completed")
