@@ -1,12 +1,18 @@
 #!/usr/bin/Rscript
 
 suppressMessages(library(dplyr))
-library(magrittr)
+suppressMessages(library(magrittr))
 suppressMessages(library(xts))
 
 invisible(Sys.setlocale("LC_TIME", "en_US.UTF-8"))
 
-# Make arguments from the index.path and period.
+# Make arguments from the index.path and periods.
+
+
+########################################################################################################################
+# Read the index.
+########################################################################################################################
+
 
 index.path = "../dat/us-stocks-daily-raw/_index.csv"
 message("Reading index from ", index.path)
@@ -17,15 +23,19 @@ index.table = index.path %>%
   filter(!is.na(From.Date), !is.na(To.Date), Rows.Number > 0)
 message("Read ", nrow(index.table), " non-empty rows")
 
-period.start = as.Date("2010-01-01")
+period.start = as.Date("2015-01-01")
 period.end = as.Date("2015-06-30")
 message("Filtering rows available from ", period.start, " to ", period.end)
 index.table = index.table %>% 
-  filter(From.Date <= period.start, To.Date >= period.end)  # %>% top_n(10, Symbol)
+  filter(From.Date <= period.start, To.Date >= period.end) %>% top_n(10, Symbol)
 message(nrow(index.table), " rows to process")
 
 
-# Sanity check.
+########################################################################################################################
+# Data sanity check.
+########################################################################################################################
+
+
 tmp.row.num = 0
 tmp.min.date = 0
 tmp.max.date = 0
@@ -44,7 +54,7 @@ check.sanity = function(symbol, current.frame) {
   }
   tmp.min.date <<- min.date
 
-  max.date = min(current.frame$Date)
+  max.date = max(current.frame$Date)
   if (tmp.max.date > 0 && tmp.max.date != max.date) {
     warning(symbol, ". Invalid end date: ", max.date)
     return (FALSE)
@@ -55,11 +65,16 @@ check.sanity = function(symbol, current.frame) {
 }
 
 
-# Quote data is reversed (most recent come first).
-# This is a little bit more than needed, but will suffice.
-rows.to.read = as.numeric(period.end - period.start)
+########################################################################################################################
+# Reading individual stock data.
+########################################################################################################################
 
-all.prices = NULL
+
+# Quote data is reversed (most recent come first).
+# This is a little bit more than needed, because not all days are traded, but it will suffice.
+rows.to.read = as.numeric(max(index.table$To.Date) - period.start)
+
+all.returns = NULL
 invisible(apply(index.table, 1, function(row) {
   symbol = row["Symbol"]
   
@@ -74,11 +89,13 @@ invisible(apply(index.table, 1, function(row) {
     return (0)
   }
 
-  if (is.null(all.prices)) {
-    all.prices <<- data.frame(matrix(, nrow=nrow(current.frame), ncol=0))
-    rownames(all.prices) <<- current.frame$Date
+  if (is.null(all.returns)) {
+    all.returns <<- data.frame(matrix(, nrow=nrow(current.frame) - 1, ncol=0))
+    rownames(all.returns) <<- current.frame$Date[-1]
   }
-  all.prices[[symbol]] <<- current.frame$Price
+  all.returns[[symbol]] <<- diff(log(current.frame$Price))
   
   message(symbol, " done")
 }))
+
+all.returns
