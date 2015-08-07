@@ -173,6 +173,11 @@ candidates.size = nrow(candidates)
 message("Selected candidates: ", candidates.size)
 print(head(candidates, n=10))
 
+# Free some memory
+candidate.symbols = unique(c(candidates$Symbol1, candidates$Symbol2))
+innov.cov.matrix = innov.cov.matrix[candidate.symbols, candidate.symbols]
+rm(innov.corr.matrix)
+
 
 ########################################################################################################################
 # Returns analysis: test for stationarity.
@@ -197,7 +202,7 @@ stationary.test = function(series) {
   adf.test.result = suppressWarnings(adf.test(series))
   adf.p.value = adf.test.result$p.value
   
-  # PP: similar to ADF: small p-values incicate possible stationarity.
+  # PP: similar to ADF: small p-values indicate possible stationarity.
   pp.test.result = suppressWarnings(pp.test(series))
   pp.p.value = pp.test.result$p.value
   
@@ -254,7 +259,10 @@ cointegrated.pairs = cointegrated.pairs %>%
   arrange(KPSS.Stat)
 
 message("Found cointegrated pairs: ", nrow(cointegrated.pairs))
-print(cointegrated.pairs, n=100)
+print(cointegrated.pairs, n=10)
+
+write.csv(file="cointegrated.pairs.csv", cointegrated.pairs)
+message("Saved to cointegrated.pairs.csv")
 
 
 ########################################################################################################################
