@@ -218,8 +218,11 @@ stationary.test = function(series) {
   if (adf.p.value > 0.3 && pp.p.value > 0.3) {
     return (NULL)
   }
-  
-  zero.series = series - mean(series)
+
+  mean = mean(series)
+  sd = sd(series)
+
+  zero.series = series - mean
   series.length = length(zero.series)
   sign.change = sign(zero.series[-series.length]) * sign(zero.series[-1])
   zero.count = sum(sign.change < 0) + sum(sign.change == 0) / 2
@@ -233,7 +236,8 @@ stationary.test = function(series) {
   lb.test.result = Box.test(series, lag=3, fitdf=3, type="Ljung-Box")
   lb.p.value = lb.test.result$p.value
   
-  return (c(kpss.statistic, zero.count, kpss.p.value, adf.p.value, pp.p.value, lb.p.value))
+  return (c(kpss.statistic, zero.count * sd, zero.count, mean, sd,
+            kpss.p.value, adf.p.value, pp.p.value, lb.p.value))
 }
 
 
@@ -247,7 +251,9 @@ return.cov.matrix = var(all.returns)
 return.corr.matrix = cor(all.returns)
 
 message("Testing all candidates for stationarity")
-names = c("Symbol1", "Symbol2", "Gamma", "KPSS.Stat", "Zero.Count", "KPSS.P", "ADF.P", "PP.P", "LB.P", "Innov.Corr", "Return.Corr")
+names = c("Symbol1", "Symbol2", "Gamma",
+          "KPSS.Stat", "Profitability", "Zero.Count", "Spread.Mean", "Spead.SD",
+          "KPSS.P", "ADF.P", "PP.P", "LB.P", "Innov.Corr", "Return.Corr")
 cointegrated.pairs = empty.df(candidates.size, names)
 
 index = 1
@@ -268,12 +274,11 @@ for (i in 1:candidates.size) {
   test.result = stationary.test(spread)
 
   if (!is.null(test.result)) {
-    best.fit = NULL
+    best.fit = c(gamma.coeff, test.result)
 
-    if (abs(regression.innov - regression.return) < 0.1) {
-      best.fit = c(gamma.coeff, test.result)
-    } else {
-      min.stat = 1000
+    # If regression coeff are far off, find the best fit from the range.
+    if (abs(regression.innov - regression.return) > 0.1) {
+      min.stat = test.result[1]
       gamma.range = seq(regression.innov, regression.return, length.out=5)
       for (gamma.coeff in gamma.range) {
         spread = return1 - gamma.coeff * return2
@@ -287,12 +292,11 @@ for (i in 1:candidates.size) {
       }
     }
 
-    if (!is.null(best.fit)) {
-      innov.corr = candidate$Innov.Corr
-      return.corr = return.corr.matrix[symbol1, symbol2]
-      cointegrated.pairs[index, ] = c(symbol1, symbol2, best.fit, innov.corr, return.corr)
-      index = index + 1
-    }
+    # Fill in the best fitted data.
+    innov.corr = candidate$Innov.Corr
+    return.corr = return.corr.matrix[symbol1, symbol2]
+    cointegrated.pairs[index, ] = c(symbol1, symbol2, best.fit, innov.corr, return.corr)
+    index = index + 1
   }
 
   if (i %in% progress.quantiles) {
