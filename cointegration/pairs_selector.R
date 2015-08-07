@@ -173,8 +173,17 @@ candidates.size = nrow(candidates)
 message("Selected candidates: ", candidates.size)
 print(head(candidates, n=10))
 
-# Free some memory
+
+########################################################################################################################
+# Free some memory.
+########################################################################################################################
+
+
 candidate.symbols = unique(c(candidates$Symbol1, candidates$Symbol2))
+
+rm(index.table)
+all.returns = subset(all.returns, select=candidate.symbols)
+rm(all.innovations)
 innov.cov.matrix = innov.cov.matrix[candidate.symbols, candidate.symbols]
 rm(innov.corr.matrix)
 
