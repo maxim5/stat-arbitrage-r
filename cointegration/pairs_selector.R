@@ -189,7 +189,7 @@ rm(innov.corr.matrix)
 
 
 ########################################################################################################################
-# Returns analysis: test for stationarity.
+# Test for stationarity.
 ########################################################################################################################
 
 
@@ -237,8 +237,17 @@ stationary.test = function(series) {
 }
 
 
-message("Running full test for stationarity")
-names = c("Symbol1", "Symbol2", "Gamma", "Innov.Corr", "KPSS.Stat", "Zero.Count", "KPSS.P", "ADF.P", "PP.P", "LB.P")
+########################################################################################################################
+# Testing all candidates for stationarity.
+########################################################################################################################
+
+
+# Prepare covariance and correlation matrix for returns.
+return.cov.matrix = var(all.returns)
+return.corr.matrix = cor(all.returns)
+
+message("Testing all candidates for stationarity")
+names = c("Symbol1", "Symbol2", "Gamma", "KPSS.Stat", "Zero.Count", "KPSS.P", "ADF.P", "PP.P", "LB.P", "Innov.Corr", "Return.Corr")
 cointegrated.pairs = empty.df(candidates.size, names)
 
 index = 1
@@ -247,15 +256,45 @@ for (i in 1:candidates.size) {
   candidate = candidates[i, ]
   symbol1 = candidate$Symbol1
   symbol2 = candidate$Symbol2
-  innov.corr = candidate$Innov.Corr
-  gamma.coeff = innov.cov.matrix[symbol1, symbol2] / innov.cov.matrix[symbol2, symbol2]
-  
-  spread = all.returns[[symbol1]] - gamma.coeff * all.returns[[symbol2]]
+
+  regression.innov = innov.cov.matrix[symbol1, symbol2] / innov.cov.matrix[symbol2, symbol2]
+  regression.return = return.cov.matrix[symbol1, symbol2] / return.cov.matrix[symbol2, symbol2]
+
+  return1 = all.returns[[symbol1]]
+  return2 = all.returns[[symbol2]]
+
+  gamma.coeff = regression.innov
+  spread = return1 - gamma.coeff * return2
   test.result = stationary.test(spread)
+
   if (!is.null(test.result)) {
-    cointegrated.pairs[index, ] = c(symbol1, symbol2, gamma.coeff, innov.corr, test.result)
-    index = index + 1
+    best.fit = NULL
+
+    if (abs(regression.innov - regression.return) < 0.1) {
+      best.fit = c(gamma.coeff, test.result)
+    } else {
+      min.stat = 1000
+      gamma.range = seq(regression.innov, regression.return, length.out=5)
+      for (gamma.coeff in gamma.range) {
+        spread = return1 - gamma.coeff * return2
+        test.result = stationary.test(spread)
+        if (!is.null(test.result)) {
+          if (test.result[1] < min.stat) {
+            min.stat = test.result[1]
+            best.fit = c(gamma.coeff, test.result)
+          }
+        }
+      }
+    }
+
+    if (!is.null(best.fit)) {
+      innov.corr = candidate$Innov.Corr
+      return.corr = return.corr.matrix[symbol1, symbol2]
+      cointegrated.pairs[index, ] = c(symbol1, symbol2, best.fit, innov.corr, return.corr)
+      index = index + 1
+    }
   }
+
   if (i %in% progress.quantiles) {
     message("...in progress ", round(100 * i / candidates.size), "%")
   }
