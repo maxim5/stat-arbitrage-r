@@ -114,37 +114,34 @@ invisible(apply(index.table, 1, function(row) {
 # It's much simpler and for daily and lower frequency seems to be a good approx.
 
 # Compute usual stats
-message("Computing covariance and correlation matrices")
-stats.mu = apply(all.innovations, 2, mean)
-stats.sigma2 = apply(all.innovations, 2, var)
-stats.sigma = sqrt(stats.sigma2)
-stats.cov.matrix = var(all.innovations)
-stats.corr.matrix = cor(all.innovations)
+message("Computing covariance and correlation matrices of innovations")
+innov.mu = apply(all.innovations, 2, mean)
+innov.sigma2 = apply(all.innovations, 2, var)
+innov.sigma = sqrt(innov.sigma2)
+innov.cov.matrix = var(all.innovations)
+innov.corr.matrix = cor(all.innovations)
 
 # Finds the candidates
-select.candidates = function(stats.corr.matrix, corr.threshold) {
+select.candidates = function(innov.corr.matrix, corr.threshold) {
   message("Selecting the candidates from the correletion matrix with threshold=", corr.threshold)
-  
-  patched.corr.matrix = abs(stats.corr.matrix)
-  patched.corr.matrix[row(patched.corr.matrix) >= col(patched.corr.matrix)] = 0
-  
-  result.size = length(patched.corr.matrix[patched.corr.matrix > corr.threshold])
+
+  matrix.size = nrow(innov.corr.matrix)
+  result.size = (length(innov.corr.matrix[innov.corr.matrix > corr.threshold]) - matrix.size) / 2
   message("Estimated number of candidates: ", result.size)
   
-  row.names = rownames(patched.corr.matrix)
-  col.names = colnames(patched.corr.matrix)
-  size = nrow(patched.corr.matrix)
+  row.names = rownames(innov.corr.matrix)
+  col.names = colnames(innov.corr.matrix)
   
   index = 1
   progress.quantiles = round(quantile(1:result.size, seq(0.1, 0.9, by=0.1)))
   result.frame = data.frame(First.Symbol=rep(NA, result.size),
                             Second.Symbol=rep(NA, result.size),
                             Correlation=rep(NA, result.size))
-  for (i in 1:(size-1)) {
-    row.i = patched.corr.matrix[i, ]
-    for (j in (i+1):size) {
-      if (row.i[j] > corr.threshold) {
-        result.frame[index, ] = c(row.names[i], col.names[j], stats.corr.matrix[i, j])
+  for (i in 1:(matrix.size-1)) {
+    row.i = innov.corr.matrix[i, ]
+    for (j in (i+1):matrix.size) {
+      if (abs(row.i[j]) > corr.threshold) {
+        result.frame[index, ] = c(row.names[i], col.names[j], row.i[j])
         index = index + 1
         if (index %in% progress.quantiles) {
           message("...in progress ", round(100 * index / result.size), "%")
@@ -170,13 +167,14 @@ print(head(candidates, n=10))
 invisible(apply(candidates, 1, function(column) {
   symbol1 = column["First.Symbol"]
   symbol2 = column["Second.Symbol"]
-  gamma.coeff = stats.cov.matrix[symbol1, symbol2] / stats.cov.matrix[symbol2, symbol2]
+  gamma.coeff = innov.cov.matrix[symbol1, symbol2] / innov.cov.matrix[symbol2, symbol2]
   
   series1 = all.returns[[symbol1]]
   series2 = gamma.coeff * all.returns[[symbol2]]
   diff = series1 - series2
   
   # Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test
+  # See http://stats.stackexchange.com/questions/13213/how-to-interpret-kpss-results
   test = suppressWarnings(kpss.test(diff))
   if (test$statistic < 0.1) {
     message("Pair ", symbol1, "/", symbol2, " passed the KPSS test with gamma=", gamma.coeff,
