@@ -41,7 +41,7 @@ message(nrow(index.table), " rows to process")
 tmp.row.num = 0
 tmp.min.date = 0
 tmp.max.date = 0
-check.sanity = function(symbol, current.frame) {
+Check.Sanity = function(symbol, current.frame) {
   row.num = nrow(current.frame)
   if (tmp.row.num > 0 && tmp.row.num != row.num) {
     message(symbol, ". Inconsistent rows number: ", row.num, ", expected: ", tmp.row.num)
@@ -95,7 +95,7 @@ for (i in 1:index.size) {
     filter(Date >= period.start, Date <= period.end) %>%
     select(Date, Price)
 
-  if (check.sanity(symbol, current.frame)) {
+  if (Check.Sanity(symbol, current.frame)) {
     if (is.null(all.returns) || is.null(all.innovations)) {
         all.returns = data.frame(matrix(, nrow=nrow(current.frame), ncol=0))
         rownames(all.returns) = current.frame$Date
@@ -130,7 +130,7 @@ innov.cov.matrix = var(all.innovations)
 innov.corr.matrix = cor(all.innovations)
 
 # Util: creates an empty data frame of a fixed size.
-empty.df = function(rows, names) {
+Empty.DF = function(rows, names) {
   cols = length(names)
   result = data.frame(matrix(rep(NA, rows * cols), nrow=rows, ncol=cols))
   colnames(result) = names
@@ -138,7 +138,7 @@ empty.df = function(rows, names) {
 }
 
 # Finds the candidates.
-select.candidates = function(innov.corr.matrix, corr.threshold) {
+Select.Candidates = function(innov.corr.matrix, corr.threshold) {
   message("Selecting the candidates from the correletion matrix with threshold=", corr.threshold)
 
   matrix.size = nrow(innov.corr.matrix)
@@ -150,7 +150,7 @@ select.candidates = function(innov.corr.matrix, corr.threshold) {
   
   index = 1
   progress.quantiles = round(quantile(1:result.size, seq(0, 1.0, by=0.05)))
-  result.frame = empty.df(result.size, c("Symbol1", "Symbol2", "Innov.Corr"))
+  result.frame = Empty.DF(result.size, c("Symbol1", "Symbol2", "Innov.Corr"))
   for (i in 1:(matrix.size-1)) {
     row.i = innov.corr.matrix[i, ]
     for (j in (i+1):matrix.size) {
@@ -167,7 +167,7 @@ select.candidates = function(innov.corr.matrix, corr.threshold) {
   result.frame[order(result.frame$Innov.Corr, decreasing=TRUE), ]
 }
 
-candidates = select.candidates(innov.corr.matrix, corr.threshold=0.85)
+candidates = Select.Candidates(innov.corr.matrix, corr.threshold=0.85)
 candidates.size = nrow(candidates)
 
 message("Selected candidates: ", candidates.size)
@@ -179,9 +179,10 @@ print(head(candidates, n=10))
 ########################################################################################################################
 
 
+# Some garbage first
+rm(rows.to.read, period.start, period.end, index.size, index.table, index.path, tmp.row.num, tmp.min.date, tmp.max.date,
+   current.frame, row, symbol)
 candidate.symbols = unique(c(candidates$Symbol1, candidates$Symbol2))
-
-rm(index.table)
 all.returns = subset(all.returns, select=candidate.symbols)
 rm(all.innovations)
 innov.cov.matrix = innov.cov.matrix[candidate.symbols, candidate.symbols]
@@ -197,7 +198,7 @@ rm(innov.corr.matrix)
 # Ruppert (Statistics and Data Analysis for Financial Engineering) suggests running the augmented Dickey–Fuller (ADF)
 # test, Phillips–Perron (PP) test, similar to the ADF test but differs in some details, and 
 # Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test. In addition we do the Ljung-Box test and zero-crossing rate.
-stationary.test = function(series) {
+Stationary.Test = function(series) {
   # KPSS: the null hypothesis means that the series is stationarity, and small p-values suggest it is not.
   # See http://stats.stackexchange.com/questions/13213/how-to-interpret-kpss-results
   kpss.test.result = suppressWarnings(kpss.test(series))
@@ -254,7 +255,7 @@ message("Testing all candidates for stationarity")
 names = c("Symbol1", "Symbol2", "Gamma",
           "KPSS.Stat", "Profitability", "Zero.Count", "Spread.Mean", "Spead.SD",
           "KPSS.P", "ADF.P", "PP.P", "LB.P", "Innov.Corr", "Return.Corr")
-cointegrated.pairs = empty.df(candidates.size, names)
+cointegrated.pairs = Empty.DF(candidates.size, names)
 
 index = 1
 progress.quantiles = round(quantile(1:candidates.size, seq(0, 1, by=0.05)))
@@ -271,7 +272,7 @@ for (i in 1:candidates.size) {
 
   gamma.coeff = regression.innov
   spread = return1 - gamma.coeff * return2
-  test.result = stationary.test(spread)
+  test.result = Stationary.Test(spread)
 
   if (!is.null(test.result)) {
     best.fit = c(gamma.coeff, test.result)
@@ -282,7 +283,7 @@ for (i in 1:candidates.size) {
       gamma.range = seq(regression.innov, regression.return, length.out=5)
       for (gamma.coeff in gamma.range) {
         spread = return1 - gamma.coeff * return2
-        test.result = stationary.test(spread)
+        test.result = Stationary.Test(spread)
         if (!is.null(test.result)) {
           if (test.result[1] < min.stat) {
             min.stat = test.result[1]
@@ -316,13 +317,17 @@ print(cointegrated.pairs, n=10)
 write.csv(file="cointegrated.pairs.csv", cointegrated.pairs)
 message("Saved to cointegrated.pairs.csv")
 
+# Free some more garbage
+rm(i, index, names, progress.quantiles, candidate, symbol1, symbol2, return1, return2, best.fit, gamma.coeff, spread,
+   regression.innov, regression.return, test.result, candidate.symbols, candidates.size, innov.corr, return.corr)
+
 
 ########################################################################################################################
 # Plots.
 ########################################################################################################################
 
 
-make.plots = function(symbol1, symbol2) {
+Make.Plots = function(symbol1, symbol2) {
   gamma = as.numeric(cointegrated.pairs[cointegrated.pairs$Symbol1 == symbol1 & 
                                         cointegrated.pairs$Symbol2 == symbol2, "Gamma"])
   
