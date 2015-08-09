@@ -244,6 +244,33 @@ Stationary.Test = function(series) {
 
 
 ########################################################################################################################
+# Best ratio.
+########################################################################################################################
+
+
+# Finds the best ratio for the gamma coefficient, assuming it's greater than or equal to 1.
+# The reason is that it's impossible to buy fractions of shares.
+# Note that the more maximum limit is, the more precise is the ratio, but also the bigger bugdet is needed to trade the
+# pair. Hence the function tries to find an approximation with smallest values possible.
+Best.Ratio = function(gamma, max=50) {
+  a = 10000
+  b = 2
+
+  min = c(1000000, 0, 0)
+  for (n in 1:max) {
+    for (m in 1:n) {
+      value = a * abs(gamma - (n / m)) + b * n
+      if (value < min[1]) {
+        min = c(value, n, m)
+      }
+    }
+  }
+
+  return (min[-1])
+}
+
+
+########################################################################################################################
 # Testing all candidates for stationarity.
 ########################################################################################################################
 
