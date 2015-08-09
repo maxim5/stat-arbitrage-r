@@ -16,7 +16,7 @@ invisible(Sys.setlocale("LC_TIME", "en_US.UTF-8"))
 ########################################################################################################################
 
 
-index.path = "../dat/us-stocks-daily-raw/_index.csv"
+index.path = "../quant-data/us-stocks/quotes/result/_index.csv"
 message("Reading index from ", index.path)
 index.table = index.path %>%
   read.csv(stringsAsFactors=FALSE) %>%
@@ -68,18 +68,18 @@ Check.Sanity = function(symbol, current.frame) {
 
 
 ########################################################################################################################
-# Reading individual stock data.
+# Reading individual securities data.
 ########################################################################################################################
 
 
-message("Reading individual stock data")
+message("Reading individual securities data")
 
 # Quote data is reversed (most recent come first).
 # This is a little bit more than needed, because not all days are traded, but it will suffice.
 rows.to.read = as.numeric(max(index.table$To.Date) - period.start)
 
+all.logs = NULL
 all.returns = NULL
-all.innovations = NULL
 
 index.size = nrow(index.table)
 progress.quantiles = round(quantile(1:index.size, seq(0, 1, by=0.05)))
@@ -96,14 +96,14 @@ for (i in 1:index.size) {
     select(Date, Price)
 
   if (Check.Sanity(symbol, current.frame)) {
-    if (is.null(all.returns) || is.null(all.innovations)) {
-        all.returns = data.frame(matrix(, nrow=nrow(current.frame), ncol=0))
-        rownames(all.returns) = current.frame$Date
-        all.innovations = data.frame(matrix(, nrow=nrow(current.frame) - 1, ncol=0))
-        rownames(all.innovations) = current.frame$Date[-1]
+    if (is.null(all.logs) || is.null(all.returns)) {
+        all.logs = data.frame(matrix(, nrow=nrow(current.frame), ncol=0))
+        rownames(all.logs) = current.frame$Date
+        all.returns = data.frame(matrix(, nrow=nrow(current.frame) - 1, ncol=0))
+        rownames(all.returns) = current.frame$Date[-1]
       }
-      all.returns[[symbol]] = log(current.frame$Price)
-      all.innovations[[symbol]] = diff(log(current.frame$Price))
+      all.logs[[symbol]] = log(current.frame$Price)
+      all.returns[[symbol]] = diff(log(current.frame$Price))
   }
 
   if (i %in% progress.quantiles) {
@@ -113,21 +113,22 @@ for (i in 1:index.size) {
 
 
 ########################################################################################################################
-# Returns innovations analysis: candidates.
+# Returns analysis: candidates.
 ########################################################################################################################
 
 
 # Vidyamurthy (Pairs Trading: Quantitative Methods and Analysis) suggests running risk-factor analysis first,
-# then using innovations of factor components. We're using innovations of total returns, including a specific component.
+# then using innovations of factor components. We're using innovations of total log-prices, including a
+# specific component, i.e. returns.
 # It's much simpler and for daily and lower frequency seems to be a good approx.
 
 # Compute usual stats
-message("Computing covariance and correlation matrices of innovations")
-innov.mu = apply(all.innovations, 2, mean)
-innov.sigma2 = apply(all.innovations, 2, var)
-innov.sigma = sqrt(innov.sigma2)
-innov.cov.matrix = var(all.innovations)
-innov.corr.matrix = cor(all.innovations)
+message("Computing covariance and correlation matrices of returns")
+return.mu = apply(all.returns, 2, mean)
+return.sigma2 = apply(all.returns, 2, var)
+return.sigma = sqrt(return.sigma2)
+return.cov.matrix = var(all.returns)
+return.corr.matrix = cor(all.returns)
 
 # Util: creates an empty data frame of a fixed size.
 Empty.DF = function(rows, names) {
@@ -138,21 +139,21 @@ Empty.DF = function(rows, names) {
 }
 
 # Finds the candidates.
-Select.Candidates = function(innov.corr.matrix, corr.threshold) {
+Select.Candidates = function(return.corr.matrix, corr.threshold) {
   message("Selecting the candidates from the correletion matrix with threshold=", corr.threshold)
 
-  matrix.size = nrow(innov.corr.matrix)
-  result.size = (length(innov.corr.matrix[abs(innov.corr.matrix) > corr.threshold]) - matrix.size) / 2
+  matrix.size = nrow(return.corr.matrix)
+  result.size = (length(return.corr.matrix[abs(return.corr.matrix) > corr.threshold]) - matrix.size) / 2
   message("Estimated number of candidates: ", result.size)
   
-  row.names = rownames(innov.corr.matrix)
-  col.names = colnames(innov.corr.matrix)
+  row.names = rownames(return.corr.matrix)
+  col.names = colnames(return.corr.matrix)
   
   index = 1
   progress.quantiles = round(quantile(1:result.size, seq(0, 1.0, by=0.05)))
-  result.frame = Empty.DF(result.size, c("Symbol1", "Symbol2", "Innov.Corr"))
+  result.frame = Empty.DF(result.size, c("Symbol1", "Symbol2", "Return.Corr"))
   for (i in 1:(matrix.size-1)) {
-    row.i = innov.corr.matrix[i, ]
+    row.i = return.corr.matrix[i, ]
     for (j in (i+1):matrix.size) {
       if (abs(row.i[j]) > corr.threshold) {
         result.frame[index, ] = c(row.names[i], col.names[j], row.i[j])
@@ -164,10 +165,10 @@ Select.Candidates = function(innov.corr.matrix, corr.threshold) {
     }
   }
   
-  result.frame[order(result.frame$Innov.Corr, decreasing=TRUE), ]
+  result.frame[order(result.frame$Return.Corr, decreasing=TRUE), ]
 }
 
-candidates = Select.Candidates(innov.corr.matrix, corr.threshold=0.85)
+candidates = Select.Candidates(return.corr.matrix, corr.threshold=0.85)
 candidates.size = nrow(candidates)
 
 message("Selected candidates: ", candidates.size)
@@ -183,10 +184,10 @@ print(head(candidates, n=10))
 rm(rows.to.read, period.start, period.end, index.size, index.table, index.path, tmp.row.num, tmp.min.date, tmp.max.date,
    current.frame, row, symbol)
 candidate.symbols = unique(c(candidates$Symbol1, candidates$Symbol2))
-all.returns = subset(all.returns, select=candidate.symbols)
-rm(all.innovations)
-innov.cov.matrix = innov.cov.matrix[candidate.symbols, candidate.symbols]
-rm(innov.corr.matrix)
+all.logs = subset(all.logs, select=candidate.symbols)
+rm(all.returns)
+return.cov.matrix = return.cov.matrix[candidate.symbols, candidate.symbols]
+rm(return.corr.matrix)
 
 
 ########################################################################################################################
@@ -247,14 +248,14 @@ Stationary.Test = function(series) {
 ########################################################################################################################
 
 
-# Prepare covariance and correlation matrix for returns.
-return.cov.matrix = var(all.returns)
-return.corr.matrix = cor(all.returns)
+# Prepare covariance and correlation matrix for log-prices.
+logs.cov.matrix = var(all.logs)
+logs.corr.matrix = cor(all.logs)
 
 message("Testing all candidates for stationarity")
 names = c("Symbol1", "Symbol2", "Gamma",
           "KPSS.Stat", "Profitability", "Zero.Count", "Spread.Mean", "Spead.SD",
-          "KPSS.P", "ADF.P", "PP.P", "LB.P", "Innov.Corr", "Return.Corr")
+          "KPSS.P", "ADF.P", "PP.P", "LB.P", "Return.Corr", "Log.Price.Corr")
 cointegrated.pairs = Empty.DF(candidates.size, names)
 
 index = 1
@@ -264,25 +265,25 @@ for (i in 1:candidates.size) {
   symbol1 = candidate$Symbol1
   symbol2 = candidate$Symbol2
 
-  regression.innov = innov.cov.matrix[symbol1, symbol2] / innov.cov.matrix[symbol2, symbol2]
   regression.return = return.cov.matrix[symbol1, symbol2] / return.cov.matrix[symbol2, symbol2]
+  regression.log = logs.cov.matrix[symbol1, symbol2] / logs.cov.matrix[symbol2, symbol2]
 
-  return1 = all.returns[[symbol1]]
-  return2 = all.returns[[symbol2]]
+  logp1 = all.logs[[symbol1]]
+  logp2 = all.logs[[symbol2]]
 
-  gamma.coeff = regression.innov
-  spread = return1 - gamma.coeff * return2
+  gamma.coeff = regression.return
+  spread = logp1 - gamma.coeff * logp2
   test.result = Stationary.Test(spread)
 
   if (!is.null(test.result)) {
     best.fit = c(gamma.coeff, test.result)
 
     # If regression coeff are far off, find the best fit from the range.
-    if (abs(regression.innov - regression.return) > 0.1) {
+    if (abs(regression.return - regression.log) > 0.1) {
       min.stat = test.result[1]
-      gamma.range = seq(regression.innov, regression.return, length.out=5)
+      gamma.range = seq(regression.return, regression.log, length.out=5)
       for (gamma.coeff in gamma.range) {
-        spread = return1 - gamma.coeff * return2
+        spread = logp1 - gamma.coeff * logp2
         test.result = Stationary.Test(spread)
         if (!is.null(test.result)) {
           if (test.result[1] < min.stat) {
@@ -294,9 +295,9 @@ for (i in 1:candidates.size) {
     }
 
     # Fill in the best fitted data.
-    innov.corr = candidate$Innov.Corr
-    return.corr = return.corr.matrix[symbol1, symbol2]
-    cointegrated.pairs[index, ] = c(symbol1, symbol2, best.fit, innov.corr, return.corr)
+    return.corr = candidate$Return.Corr
+    logs.corr = logs.corr.matrix[symbol1, symbol2]
+    cointegrated.pairs[index, ] = c(symbol1, symbol2, best.fit, return.corr, logs.corr)
     index = index + 1
   }
 
@@ -318,8 +319,8 @@ write.csv(file="cointegrated.pairs.csv", cointegrated.pairs)
 message("Saved to cointegrated.pairs.csv")
 
 # Free some more garbage
-rm(i, index, names, progress.quantiles, candidate, symbol1, symbol2, return1, return2, best.fit, gamma.coeff, spread,
-   regression.innov, regression.return, test.result, candidate.symbols, candidates.size, innov.corr, return.corr)
+rm(i, index, names, progress.quantiles, candidate, symbol1, symbol2, logp1, logp2, best.fit, gamma.coeff, spread,
+   regression.return, regression.log, test.result, candidate.symbols, candidates.size, return.corr, logs.corr)
 
 
 ########################################################################################################################
@@ -331,9 +332,9 @@ Make.Plots = function(symbol1, symbol2) {
   gamma = as.numeric(cointegrated.pairs[cointegrated.pairs$Symbol1 == symbol1 & 
                                         cointegrated.pairs$Symbol2 == symbol2, "Gamma"])
   
-  series1 = all.returns[[symbol1]]
-  series2 = all.returns[[symbol2]]
-  dates = as.Date(rownames(all.returns))
+  series1 = all.logs[[symbol1]]
+  series2 = all.logs[[symbol2]]
+  dates = as.Date(rownames(all.logs))
 
   data.to.plot = data.frame(series1, series2, dates)
   colnames(data.to.plot) = c(symbol1, symbol2, "Date")
@@ -341,13 +342,13 @@ Make.Plots = function(symbol1, symbol2) {
   plot = ggplot(data.to.plot, aes(x=Date)) +
     geom_line(aes_q(y=as.name(symbol1), colour="red")) +
     geom_line(aes_q(y=as.name(symbol2), colour="blue")) +
-    labs(title=paste("Comparison of returns (log prices):", symbol1, symbol2))
+    labs(title=paste("Comparison of log(price):", symbol1, symbol2))
   print(plot)
   
   spread = series1 - gamma * series2
   plot(x=dates, y=spread, type="l",
        xlab="Time", ylab="Spread",
-       main=paste("Spread of returns:", symbol1, symbol2))
+       main=paste("Spread:", symbol1, symbol2))
   abline(h = mean(spread))
 }
 
