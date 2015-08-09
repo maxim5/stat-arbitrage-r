@@ -16,7 +16,7 @@ invisible(Sys.setlocale("LC_TIME", "en_US.UTF-8"))
 ########################################################################################################################
 
 
-index.path = "../quant-data/us-stocks/quotes/result/_index.csv"
+index.path = "../dat/us-stocks-daily-raw/_index.csv"
 message("Reading index from ", index.path)
 index.table = index.path %>%
   read.csv(stringsAsFactors=FALSE) %>%
@@ -267,6 +267,15 @@ for (i in 1:candidates.size) {
 
   regression.return = return.cov.matrix[symbol1, symbol2] / return.cov.matrix[symbol2, symbol2]
   regression.log = logs.cov.matrix[symbol1, symbol2] / logs.cov.matrix[symbol2, symbol2]
+
+  if (regression.return < 1) {
+   tmp = symbol1
+   symbol1 = symbol2
+   symbol2 = tmp
+
+   regression.return = 1 / regression.return
+   regression.log = 1 / regression.log
+  }
 
   logp1 = all.logs[[symbol1]]
   logp2 = all.logs[[symbol2]]
