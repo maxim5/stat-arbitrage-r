@@ -221,10 +221,7 @@ Stationary.Test = function(series) {
     return (NULL)
   }
 
-  mean = mean(series)
-  sd = sd(series)
-
-  zero.series = series - mean
+  zero.series = series - mean(series)
   series.length = length(zero.series)
   sign.change = sign(zero.series[-series.length]) * sign(zero.series[-1])
   zero.count = sum(sign.change < 0) + sum(sign.change == 0) / 2
@@ -238,13 +235,15 @@ Stationary.Test = function(series) {
   lb.test.result = Box.test(series, lag=3, fitdf=3, type="Ljung-Box")
   lb.p.value = lb.test.result$p.value
   
-  return (c(kpss.statistic, zero.count * sd, zero.count, mean, sd,
-            kpss.p.value, adf.p.value, pp.p.value, lb.p.value))
+  return (list(value=kpss.statistic,
+               series=series,
+               stationarity=c(kpss.statistic, kpss.p.value, adf.p.value, pp.p.value, lb.p.value),
+               zero.count=zero.count))
 }
 
 
 ########################################################################################################################
-# Best ratio.
+# More detailed analysis.
 ########################################################################################################################
 
 
@@ -256,17 +255,29 @@ Best.Ratio = function(gamma, max=50) {
   a = 10000
   b = 2
 
+  sign = sign(gamma)
+  gamma = abs(gamma)
+
   min = c(1000000, 0, 0)
   for (n in 1:max) {
     for (m in 1:n) {
       value = a * abs(gamma - (n / m)) + b * n
       if (value < min[1]) {
-        min = c(value, n, m)
+        min = c(value, n, sign * m)
       }
     }
   }
 
   return (min[-1])
+}
+
+
+# Performs the analysis of the spread series.
+Spread.Analysis = function(spread, zero.count) {
+  spread.mean = mean(spread)
+  spread.sd = sd(spread)
+  profitability = zero.count * spread.sd
+  return (c(zero.count, profitability, spread.mean, spread.sd))
 }
 
 
@@ -280,9 +291,10 @@ logs.cov.matrix = var(all.logs)
 logs.corr.matrix = cor(all.logs)
 
 message("Testing all candidates for stationarity")
-names = c("Symbol1", "Symbol2", "Gamma",
-          "KPSS.Stat", "Profitability", "Zero.Count", "Spread.Mean", "Spead.SD",
-          "KPSS.P", "ADF.P", "PP.P", "LB.P", "Return.Corr", "Log.Price.Corr")
+names = c("Symbol1", "Symbol2",
+          "Gamma", "Gamma.Num", "Gamma.Denom",
+          "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD",
+          "KPSS.Stat", "KPSS.P", "ADF.P", "PP.P", "LB.P", "Return.Corr", "Log.Price.Corr")
 cointegrated.pairs = Empty.DF(candidates.size, names)
 
 index = 1
@@ -291,49 +303,51 @@ for (i in 1:candidates.size) {
   candidate = candidates[i, ]
   symbol1 = candidate$Symbol1
   symbol2 = candidate$Symbol2
+  logp1 = all.logs[[symbol1]]
+  logp2 = all.logs[[symbol2]]
 
   regression.return = return.cov.matrix[symbol1, symbol2] / return.cov.matrix[symbol2, symbol2]
   regression.log = logs.cov.matrix[symbol1, symbol2] / logs.cov.matrix[symbol2, symbol2]
 
-  if (regression.return < 1) {
-   tmp = symbol1
-   symbol1 = symbol2
-   symbol2 = tmp
-
-   regression.return = 1 / regression.return
-   regression.log = 1 / regression.log
+  # If regression coeff are far off, find the best fit from the range. Note: takes more time!
+  gamma.range = c(regression.return, regression.log)
+  if (abs(regression.return - regression.log) > 0.1) {
+    gamma.range = seq(regression.return, regression.log, length.out=11)
+  } else if (abs(regression.return - regression.log) > 0.05) {
+    gamma.range = seq(regression.return, regression.log, length.out=5)
   }
 
-  logp1 = all.logs[[symbol1]]
-  logp2 = all.logs[[symbol2]]
-
-  gamma.coeff = regression.return
-  spread = logp1 - gamma.coeff * logp2
-  test.result = Stationary.Test(spread)
-
-  if (!is.null(test.result)) {
-    best.fit = c(gamma.coeff, test.result)
-
-    # If regression coeff are far off, find the best fit from the range.
-    if (abs(regression.return - regression.log) > 0.1) {
-      min.stat = test.result[1]
-      gamma.range = seq(regression.return, regression.log, length.out=5)
-      for (gamma.coeff in gamma.range) {
-        spread = logp1 - gamma.coeff * logp2
-        test.result = Stationary.Test(spread)
-        if (!is.null(test.result)) {
-          if (test.result[1] < min.stat) {
-            min.stat = test.result[1]
-            best.fit = c(gamma.coeff, test.result)
-          }
-        }
-      }
+  best.fit = NULL
+  min.stat = 1000
+  for (gamma.coeff in gamma.range) {
+    if (abs(gamma.coeff) > 1) {
+      pair = c(symbol1, symbol2)
+      spread = logp1 - gamma.coeff * logp2
+    } else {
+      gamma.coeff = 1 / gamma.coeff
+      pair = c(symbol2, symbol1)
+      spread = logp2 - gamma.coeff * logp1
     }
 
-    # Fill in the best fitted data.
+    test.result = Stationary.Test(spread)
+    if (!is.null(test.result) && test.result$value < min.stat) {
+      min.stat = test.result$value
+      best.fit = list(pair, gamma.coeff, test.result)
+    }
+  }
+
+  # Fill in the best fitted data.
+  if (!is.null(best.fit)) {
+    pair = best.fit[[1]]
+    gamma.coeff = best.fit[[2]]
+    test.result = best.fit[[3]]
+    ratio = Best.Ratio(gamma.coeff)
+    gamma.info = c(gamma.coeff, ratio)
+    spread.analysis = Spread.Analysis(spread=test.result$series, zero.count=test.result$zero.count)
+    stationarity = test.result$stationarity
     return.corr = candidate$Return.Corr
     logs.corr = logs.corr.matrix[symbol1, symbol2]
-    cointegrated.pairs[index, ] = c(symbol1, symbol2, best.fit, return.corr, logs.corr)
+    cointegrated.pairs[index, ] = c(pair, gamma.info, spread.analysis, stationarity, return.corr, logs.corr)
     index = index + 1
   }
 
@@ -394,4 +408,4 @@ message("Selection completed")
 
 # Free everything except for important stuff.
 suppressMessages(library(gdata))
-keep(cointegrated.pairs, sure=TRUE)
+#keep(cointegrated.pairs, sure=TRUE)
