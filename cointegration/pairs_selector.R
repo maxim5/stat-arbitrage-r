@@ -16,7 +16,7 @@ invisible(Sys.setlocale("LC_TIME", "en_US.UTF-8"))
 ########################################################################################################################
 
 
-index.path = "../dat/us-stocks-daily-raw/_index.csv"
+index.path = "_index.csv"
 message("Reading index from ", index.path)
 index.table = index.path %>%
   read.csv(stringsAsFactors=FALSE) %>%
@@ -228,7 +228,7 @@ Stationary.Test = function(series) {
   series.length = length(zero.series)
   sign.change = sign(zero.series[-series.length]) * sign(zero.series[-1])
   zero.count = sum(sign.change < 0) + sum(sign.change == 0) / 2
-  
+
   if (zero.count / series.length < 0.15) {
     return (NULL)
   }
@@ -354,10 +354,6 @@ print(cointegrated.pairs, n=10)
 write.csv(file="cointegrated.pairs.csv", cointegrated.pairs)
 message("Saved to cointegrated.pairs.csv")
 
-# Free some more garbage
-rm(i, index, names, progress.quantiles, candidate, symbol1, symbol2, logp1, logp2, best.fit, gamma.coeff, spread,
-   regression.return, regression.log, test.result, candidate.symbols, candidates.size, return.corr, logs.corr)
-
 
 ########################################################################################################################
 # Plots.
@@ -395,3 +391,7 @@ Make.Plots = function(symbol1, symbol2) {
 #}
 
 message("Selection completed")
+
+# Free everything except for important stuff.
+suppressMessages(library(gdata))
+keep(cointegrated.pairs, sure=TRUE)
