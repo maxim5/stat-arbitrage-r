@@ -281,6 +281,15 @@ Spread.Analysis = function(spread, zero.count) {
 }
 
 
+# Calculates the cost of opening a position, going one security long, the other short.
+# Transaction costs and bid-ask spread ignored.
+Position.Cost = function(pair, ratio) {
+  logp1 = all.logs[[pair[1]]]
+  logp2 = all.logs[[pair[2]]]
+  return (abs(max(ratio[1] * exp(logp1) - ratio[2] * exp(logp2))))
+}
+
+
 ########################################################################################################################
 # Testing all candidates for stationarity.
 ########################################################################################################################
@@ -293,7 +302,7 @@ logs.corr.matrix = cor(all.logs)
 message("Testing all candidates for stationarity")
 names = c("Symbol1", "Symbol2",
           "Gamma", "Gamma.Num", "Gamma.Denom",
-          "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD",
+          "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD", "Position.Cost",
           "KPSS.Stat", "KPSS.P", "ADF.P", "PP.P", "LB.P", "Return.Corr", "Log.Price.Corr")
 cointegrated.pairs = Empty.DF(candidates.size, names)
 
@@ -344,10 +353,11 @@ for (i in 1:candidates.size) {
     ratio = Best.Ratio(gamma.coeff)
     gamma.info = c(gamma.coeff, ratio)
     spread.analysis = Spread.Analysis(spread=test.result$series, zero.count=test.result$zero.count)
+    position.cost = Position.Cost(pair, ratio)
     stationarity = test.result$stationarity
     return.corr = candidate$Return.Corr
     logs.corr = logs.corr.matrix[symbol1, symbol2]
-    cointegrated.pairs[index, ] = c(pair, gamma.info, spread.analysis, stationarity, return.corr, logs.corr)
+    cointegrated.pairs[index, ] = c(pair, gamma.info, spread.analysis, position.cost, stationarity, return.corr, logs.corr)
     index = index + 1
   }
 
@@ -408,4 +418,4 @@ message("Selection completed")
 
 # Free everything except for important stuff.
 suppressMessages(library(gdata))
-#keep(cointegrated.pairs, sure=TRUE)
+keep(cointegrated.pairs, sure=TRUE)
