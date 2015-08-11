@@ -266,7 +266,7 @@ Best.Ratio = function(gamma, max=50) {
   sign = sign(gamma)
   gamma = abs(gamma)
   if (gamma > max) {
-    return (max, sign * 1, gamma - max)
+    return (c(max, sign * 1, gamma - max))
   }
 
   min = c(1000000, 0, 0)
@@ -293,15 +293,6 @@ Spread.Analysis = function(spread, zero.count=NULL) {
   spread.sd = sd(spread)
   profitability = zero.count * spread.sd
   return (c(zero.count, profitability, spread.mean, spread.sd))
-}
-
-
-# Calculates the cost of opening a position, going one security long, the other short.
-# Transaction costs and bid-ask spread ignored.
-Position.Cost = function(pair, ratio) {
-  logp1 = all.logs[[pair[1]]]
-  logp2 = all.logs[[pair[2]]]
-  return (max(abs(ratio[1] * exp(logp1) - ratio[2] * exp(logp2))))
 }
 
 
@@ -371,17 +362,27 @@ for (i in 1:candidates.size) {
     gamma.coeff = best.fit[[2]]
     test.result = best.fit[[3]]
 
+    # Exact co-cointegrated pairs.
     spread.analysis = Spread.Analysis(spread=test.result$series, zero.count=test.result$zero.count)
     stationarity = test.result$stationarity
     return.corr = candidate$Return.Corr
     logs.corr = logs.corr.matrix[symbol1, symbol2]
     cointegrated.pairs[index, ] = c(pair, gamma.coeff, spread.analysis, stationarity, return.corr, logs.corr)
 
+    # Tradable pairs: some fraction of co-cointegrated pairs.
+    if (pair[[1]] != symbol1) {
+      tmp = logp1
+      logp1 = logp2
+      logp2 = tmp
+    }
     gamma.ratio = Best.Ratio(gamma.coeff)
-    position.cost = Position.Cost(pair, gamma.ratio)
-    spread = all.logs[[pair[1]]] * gamma.ratio[1] - all.logs[[pair[2]]] * gamma.ratio[2]
-    spread.analysis = Spread.Analysis(spread=spread)
-    tradable.pairs[index, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
+    log.spread = logp1 * gamma.ratio[2] - logp2 * gamma.ratio[1]
+    price.spread = exp(logp1) * gamma.ratio[2] - exp(logp2) * gamma.ratio[1]
+    if (!is.null(Stationary.Test(log.spread))) {
+      position.cost = max(abs(price.spread))  # Transaction costs and bid-ask spread ignored.
+      spread.analysis = Spread.Analysis(spread=log.spread)
+      tradable.pairs[index, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
+    }
 
     index = index + 1
   }
