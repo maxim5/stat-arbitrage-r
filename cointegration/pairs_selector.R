@@ -466,11 +466,11 @@ Make.Plots = function(symbol1, symbol2) {
 
   plot(x=dates, y=spread, type="l", col="darkorchid",
        xlab="Time", ylab="Spread",
-       main=paste0("Log(", symbol1, ") - ", signif(gamma, 3), "*og(" symbol2, ")"))
+       main=paste0("Log(", symbol1, ") - ", signif(gamma, 3), "*Log(", symbol2, ")"))
   
   Add.HLine(mean, "aquamarine3")
   Add.HLine(mean+sd, "aquamarine4")
   Add.HLine(mean-sd, "aquamarine4")
 }
 
-Maessage("Selection completed")
+message("Selection completed")
