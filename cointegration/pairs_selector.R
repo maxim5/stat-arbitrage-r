@@ -4,7 +4,6 @@
 
 
 suppressMessages(library(dplyr))
-suppressMessages(library(ggplot2))
 suppressMessages(library(magrittr))
 suppressMessages(library(tseries))
 
@@ -434,6 +433,9 @@ keep(cointegrated.pairs, tradable.pairs, all.logs, sure=TRUE)
 ########################################################################################################################
 
 
+suppressMessages(library(ggplot2))
+suppressMessages(require(reshape2))
+
 Make.Plots = function(symbol1, symbol2) {
   gamma = as.numeric(cointegrated.pairs[cointegrated.pairs$Symbol1 == symbol1 & 
                                         cointegrated.pairs$Symbol2 == symbol2, "Gamma"])
@@ -444,18 +446,31 @@ Make.Plots = function(symbol1, symbol2) {
 
   data.to.plot = data.frame(series1, series2, dates)
   colnames(data.to.plot) = c(symbol1, symbol2, "Date")
+  data.to.plot = melt(data.to.plot, id="Date")
 
-  plot = ggplot(data.to.plot, aes(x=Date)) +
-    geom_line(aes_q(y=as.name(symbol1), colour="red")) +
-    geom_line(aes_q(y=as.name(symbol2), colour="blue")) +
-    labs(title=paste("Comparison of log(price):", symbol1, symbol2))
+  plot = ggplot(data.to.plot, aes(x=Date, y=value, color=variable)) +
+    geom_line() +
+    labs(title=paste0("Log(", symbol1, ") vs Log(", symbol2, ")"),
+         x="Time", y="Log(Price)") +
+    scale_colour_discrete(name="Legend")
   print(plot)
   
   spread = series1 - gamma * series2
-  plot(x=dates, y=spread, type="l",
+  mean = mean(spread)
+  sd = sd(spread)
+  
+  Add.HLine = function(level, color) {
+    abline(h = level, col=color)
+    text(dates[1], level, signif(level, 3), col=color, adj=c(0.5, 0))
+  }
+
+  plot(x=dates, y=spread, type="l", col="darkorchid",
        xlab="Time", ylab="Spread",
-       main=paste("Spread:", symbol1, symbol2))
-  abline(h = mean(spread))
+       main=paste0("Log(", symbol1, ") - ", signif(gamma, 3), "*og(" symbol2, ")"))
+  
+  Add.HLine(mean, "aquamarine3")
+  Add.HLine(mean+sd, "aquamarine4")
+  Add.HLine(mean-sd, "aquamarine4")
 }
 
-message("Selection completed")
+Maessage("Selection completed")
