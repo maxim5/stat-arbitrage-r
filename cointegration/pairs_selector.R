@@ -195,6 +195,15 @@ rm(return.corr.matrix)
 ########################################################################################################################
 
 
+# Counts the number of zero (mean) crossings of the series.
+Get.Zero.Count = function(series) {
+  zero.series = series - mean(series)
+  series.length = length(zero.series)
+  sign.change = sign(zero.series[-series.length]) * sign(zero.series[-1])
+  return (sum(sign.change < 0) + sum(sign.change == 0) / 2)
+}
+
+
 # Tests for stationarity.
 # Ruppert (Statistics and Data Analysis for Financial Engineering) suggests running the augmented Dickey–Fuller (ADF)
 # test, Phillips–Perron (PP) test, similar to the ADF test but differs in some details, and 
@@ -221,12 +230,11 @@ Stationary.Test = function(series) {
     return (NULL)
   }
 
-  zero.series = series - mean(series)
-  series.length = length(zero.series)
-  sign.change = sign(zero.series[-series.length]) * sign(zero.series[-1])
-  zero.count = sum(sign.change < 0) + sum(sign.change == 0) / 2
+  # Zero count: should be high enough to be tradable.
+  zero.count = Get.Zero.Count(series)
+  zero.rate = zero.count / length(series)
 
-  if (zero.count / series.length < 0.15) {
+  if (zero.rate < 0.15) {
     return (NULL)
   }
 
@@ -257,13 +265,17 @@ Best.Ratio = function(gamma, max=50) {
 
   sign = sign(gamma)
   gamma = abs(gamma)
+  if (gamma > max) {
+    return (max, sign * 1, gamma - max)
+  }
 
   min = c(1000000, 0, 0)
   for (n in 1:max) {
     for (m in 1:n) {
-      value = a * abs(gamma - (n / m)) + b * n
+      error = abs(gamma - (n / m))
+      value = a * error + b * n
       if (value < min[1]) {
-        min = c(value, n, sign * m)
+        min = c(value, n, sign * m, error)
       }
     }
   }
@@ -273,7 +285,10 @@ Best.Ratio = function(gamma, max=50) {
 
 
 # Performs the analysis of the spread series.
-Spread.Analysis = function(spread, zero.count) {
+Spread.Analysis = function(spread, zero.count=NULL) {
+  if (is.null(zero.count)) {
+    zero.count = Get.Zero.Count(spread)
+  }
   spread.mean = mean(spread)
   spread.sd = sd(spread)
   profitability = zero.count * spread.sd
@@ -286,7 +301,7 @@ Spread.Analysis = function(spread, zero.count) {
 Position.Cost = function(pair, ratio) {
   logp1 = all.logs[[pair[1]]]
   logp2 = all.logs[[pair[2]]]
-  return (abs(max(ratio[1] * exp(logp1) - ratio[2] * exp(logp2))))
+  return (max(abs(ratio[1] * exp(logp1) - ratio[2] * exp(logp2))))
 }
 
 
@@ -300,11 +315,16 @@ logs.cov.matrix = var(all.logs)
 logs.corr.matrix = cor(all.logs)
 
 message("Testing all candidates for stationarity")
-names = c("Symbol1", "Symbol2",
-          "Gamma", "Gamma.Num", "Gamma.Denom",
-          "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD", "Position.Cost",
-          "KPSS.Stat", "KPSS.P", "ADF.P", "PP.P", "LB.P", "Return.Corr", "Log.Price.Corr")
-cointegrated.pairs = Empty.DF(candidates.size, names)
+
+cointegrated.pairs = Empty.DF(candidates.size,
+                              names=c("Symbol1", "Symbol2", "Gamma",
+                                      "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD",
+                                      "KPSS.Stat", "KPSS.P", "ADF.P", "PP.P", "LB.P",
+                                      "Return.Corr", "Log.Price.Corr"))
+
+tradable.pairs = Empty.DF(candidates.size,
+                          names=c("Symbol1", "Symbol2", "Gamma.Exact", "Gamma.Num", "Gamma.Denom", "Gamma.Error",
+                                  "Position.Cost", "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD"))
 
 index = 1
 progress.quantiles = round(quantile(1:candidates.size, seq(0, 1, by=0.05)))
@@ -350,14 +370,19 @@ for (i in 1:candidates.size) {
     pair = best.fit[[1]]
     gamma.coeff = best.fit[[2]]
     test.result = best.fit[[3]]
-    ratio = Best.Ratio(gamma.coeff)
-    gamma.info = c(gamma.coeff, ratio)
+
     spread.analysis = Spread.Analysis(spread=test.result$series, zero.count=test.result$zero.count)
-    position.cost = Position.Cost(pair, ratio)
     stationarity = test.result$stationarity
     return.corr = candidate$Return.Corr
     logs.corr = logs.corr.matrix[symbol1, symbol2]
-    cointegrated.pairs[index, ] = c(pair, gamma.info, spread.analysis, position.cost, stationarity, return.corr, logs.corr)
+    cointegrated.pairs[index, ] = c(pair, gamma.coeff, spread.analysis, stationarity, return.corr, logs.corr)
+
+    gamma.ratio = Best.Ratio(gamma.coeff)
+    position.cost = Position.Cost(pair, gamma.ratio)
+    spread = all.logs[[pair[1]]] * gamma.ratio[1] - all.logs[[pair[2]]] * gamma.ratio[2]
+    spread.analysis = Spread.Analysis(spread=spread)
+    tradable.pairs[index, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
+
     index = index + 1
   }
 
@@ -366,17 +391,41 @@ for (i in 1:candidates.size) {
   }
 }
 
+
+########################################################################################################################
+# Clean and save results.
+########################################################################################################################
+
+
+Clean.DF = function(frame) {
+  frame %>%
+    tbl_df() %>%
+    filter(!is.na(Symbol1), !is.na(Symbol2)) %>%
+    mutate_each_(funs(as.numeric), colnames(frame)[-c(1, 2)])
+}
+
+
+Report.DF = function(frame, description, file.name) {
+  message("Found ", description, ": ", nrow(frame))
+  print(frame, n=10)
+  write.csv(file=file.name, frame)
+  message("Saved ", description, " to ", file.name)
+  frame
+}
+
 cointegrated.pairs = cointegrated.pairs %>%
-  tbl_df() %>%
-  filter(!is.na(Symbol1), !is.na(Symbol2)) %>%
-  mutate_each_(funs(as.numeric), names[-c(1, 2)]) %>%
-  arrange(KPSS.Stat)
+  Clean.DF() %>%
+  arrange(KPSS.Stat) %>%
+  Report.DF(description="cointegrated pairs", file.name="result-cointegrated-pairs.csv")
 
-message("Found cointegrated pairs: ", nrow(cointegrated.pairs))
-print(cointegrated.pairs, n=10)
+tradable.pairs = tradable.pairs %>%
+  Clean.DF() %>%
+  arrange(desc(Profitability)) %>%
+  Report.DF(description="tradable pairs", file.name="result-tradable-pairs.csv")
 
-write.csv(file="cointegrated.pairs.csv", cointegrated.pairs)
-message("Saved to cointegrated.pairs.csv")
+# Free everything except for important stuff.
+suppressMessages(library(gdata))
+keep(cointegrated.pairs, tradable.pairs, all.logs, sure=TRUE)
 
 
 ########################################################################################################################
@@ -408,14 +457,4 @@ Make.Plots = function(symbol1, symbol2) {
   abline(h = mean(spread))
 }
 
-#message("Making the plots")
-#for (i in 1:nrow(cointegrated.pairs)) {
-#  pair = cointegrated.pairs[i, ]
-#  make.plots(pair$Symbol1, pair$Symbol2)
-#}
-
 message("Selection completed")
-
-# Free everything except for important stuff.
-suppressMessages(library(gdata))
-keep(cointegrated.pairs, sure=TRUE)
