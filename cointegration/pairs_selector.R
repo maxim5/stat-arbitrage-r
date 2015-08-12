@@ -316,6 +316,8 @@ tradable.pairs = Empty.DF(candidates.size,
                           names=c("Symbol1", "Symbol2", "Gamma.Exact", "Gamma.Num", "Gamma.Denom", "Gamma.Error",
                                   "Position.Cost", "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD"))
 
+spread.time.series = Empty.DF(nrow(all.logs), names=c())
+
 # Maximum risk allowed for trading.
 max.risk.sd = 0.02
 
@@ -394,6 +396,10 @@ for (i in 1:candidates.size) {
   position.cost = max(abs(price.spread))  # Transaction costs and bid-ask spread ignored.
   spread.analysis = Spread.Analysis(spread=log.spread)
   tradable.pairs[i, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
+
+  # Spread time series.
+  column.name = paste0(symbol1, ".", symbol2)
+  spread.time.series[[column.name]] = log.spread
 }
 
 
@@ -426,9 +432,15 @@ tradable.pairs = tradable.pairs %>%
   Clean.DF() %>%
   arrange(desc(Profitability)) %>%
   Report.DF(description="tradable pairs", file.name="result-tradable-pairs.csv")
+  
+spread.time.series = spread.time.series %>% tbl_df()
+message("Spreads: ", ncol(spread.time.series))
+print(spread.time.series, n=10)
+write.csv(file="result-spreads.csv", spread.time.series)
+message("Saved spreads to result-spreads.csv")
 
 # Free everything except for important stuff.
 suppressMessages(library(gdata))
-keep(cointegrated.pairs, tradable.pairs, all.logs, sure=TRUE)
+keep(cointegrated.pairs, tradable.pairs, spread.time.series, all.logs, sure=TRUE)
 save.image("pairs.RData")
 message("Selection completed")
