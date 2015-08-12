@@ -436,10 +436,7 @@ keep(cointegrated.pairs, tradable.pairs, all.logs, sure=TRUE)
 suppressMessages(library(ggplot2))
 suppressMessages(require(reshape2))
 
-Make.Plots = function(symbol1, symbol2) {
-  gamma = as.numeric(cointegrated.pairs[cointegrated.pairs$Symbol1 == symbol1 & 
-                                        cointegrated.pairs$Symbol2 == symbol2, "Gamma"])
-  
+Plot.Logs = function(symbol1, symbol2) {
   series1 = all.logs[[symbol1]]
   series2 = all.logs[[symbol2]]
   dates = as.Date(rownames(all.logs))
@@ -454,23 +451,42 @@ Make.Plots = function(symbol1, symbol2) {
          x="Time", y="Log(Price)") +
     scale_colour_discrete(name="Legend")
   print(plot)
-  
-  spread = series1 - gamma * series2
+}
+
+Plot.Spread = function(spread, x=NULL, title="Spread") {
   mean = mean(spread)
   sd = sd(spread)
+  stats = boxplot.stats(spread)
+  if (is.null(x)) {
+    x = index(spread)
+  }
   
+  plot(x=x, y=spread, type="l", lwd=2, col="darkorchid",
+       xlab="Time", ylab="Spread", main=title)
+
   Add.HLine = function(level, color) {
-    abline(h = level, col=color)
+    abline(h=level, col=color)
     text(dates[1], level, signif(level, 3), col=color, adj=c(0.5, 0))
   }
-
-  plot(x=dates, y=spread, type="l", col="darkorchid",
-       xlab="Time", ylab="Spread",
-       main=paste0("Log(", symbol1, ") - ", signif(gamma, 3), "*Log(", symbol2, ")"))
   
   Add.HLine(mean, "aquamarine3")
   Add.HLine(mean+sd, "aquamarine4")
   Add.HLine(mean-sd, "aquamarine4")
+  Add.HLine(stats$stats[1], "firebrick1")
+  Add.HLine(stats$stats[5], "firebrick1")
+}
+
+Plot.Pair = function(symbol1, symbol2) {
+  Plot.Logs(symbol1, symbol2)
+
+  series1 = all.logs[[symbol1]]
+  series2 = all.logs[[symbol2]]
+  dates = as.Date(rownames(all.logs))
+  gamma = as.numeric(cointegrated.pairs[cointegrated.pairs$Symbol1 == symbol1 & 
+                                        cointegrated.pairs$Symbol2 == symbol2, "Gamma"])
+  spread = series1 - gamma * series2
+  Plot.Spread(spread=spread, x=dates,
+              title=paste0("Log(", symbol1, ") - ", signif(gamma, 3), "*Log(", symbol2, ")"))
 }
 
 message("Selection completed")
