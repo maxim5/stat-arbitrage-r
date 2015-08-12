@@ -466,7 +466,7 @@ Plot.Spread = function(spread, x=NULL, title="Spread") {
 
   Add.HLine = function(level, color) {
     abline(h=level, col=color)
-    text(dates[1], level, signif(level, 3), col=color, adj=c(0.5, 0))
+    text(x[1], level, signif(level, 3), col=color, adj=c(0.5, 0))
   }
   
   Add.HLine(mean, "aquamarine3")
