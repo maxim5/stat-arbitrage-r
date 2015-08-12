@@ -316,9 +316,16 @@ tradable.pairs = Empty.DF(candidates.size,
                           names=c("Symbol1", "Symbol2", "Gamma.Exact", "Gamma.Num", "Gamma.Denom", "Gamma.Error",
                                   "Position.Cost", "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD"))
 
+# Maximum risk allowed for trading.
+max.risk.sd = 0.02
+
 index = 1
 progress.quantiles = round(quantile(1:candidates.size, seq(0, 1, by=0.05)))
 for (i in 1:candidates.size) {
+  if (i %in% progress.quantiles) {
+    message("...in progress ", round(100 * i / candidates.size), "%")
+  }
+
   candidate = candidates[i, ]
   symbol1 = candidate$Symbol1
   symbol2 = candidate$Symbol2
@@ -354,41 +361,39 @@ for (i in 1:candidates.size) {
       best.fit = list(pair, gamma.coeff, test.result)
     }
   }
+  if (is.null(best.fit)) {
+    next
+  }
 
   # Fill in the best fitted data.
-  if (!is.null(best.fit)) {
-    pair = best.fit[[1]]
-    gamma.coeff = best.fit[[2]]
-    test.result = best.fit[[3]]
+  pair = best.fit[[1]]
+  gamma.coeff = best.fit[[2]]
+  test.result = best.fit[[3]]
 
-    # Exact co-cointegrated pairs.
-    spread.analysis = Spread.Analysis(spread=test.result$series, zero.count=test.result$zero.count)
-    stationarity = test.result$stationarity
-    return.corr = candidate$Return.Corr
-    logs.corr = logs.corr.matrix[symbol1, symbol2]
-    cointegrated.pairs[index, ] = c(pair, gamma.coeff, spread.analysis, stationarity, return.corr, logs.corr)
+  # Exact co-cointegrated pairs.
+  spread.analysis = Spread.Analysis(spread=test.result$series, zero.count=test.result$zero.count)
+  stationarity = test.result$stationarity
+  return.corr = candidate$Return.Corr
+  logs.corr = logs.corr.matrix[symbol1, symbol2]
+  cointegrated.pairs[i, ] = c(pair, gamma.coeff, spread.analysis, stationarity, return.corr, logs.corr)
 
-    # Tradable pairs: some fraction of co-cointegrated pairs.
-    if (pair[[1]] != symbol1) {
-      tmp = logp1
-      logp1 = logp2
-      logp2 = tmp
-    }
-    gamma.ratio = Best.Ratio(gamma.coeff)
-    log.spread = logp1 * gamma.ratio[2] - logp2 * gamma.ratio[1]
-    price.spread = exp(logp1) * gamma.ratio[2] - exp(logp2) * gamma.ratio[1]
-    if (!is.null(Stationary.Test(log.spread))) {
-      position.cost = max(abs(price.spread))  # Transaction costs and bid-ask spread ignored.
-      spread.analysis = Spread.Analysis(spread=log.spread)
-      tradable.pairs[index, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
-    }
-
-    index = index + 1
+  # Tradable pairs: some fraction of co-cointegrated pairs.
+  if (pair[[1]] != symbol1) {
+    tmp = logp1
+    logp1 = logp2
+    logp2 = tmp
   }
 
-  if (i %in% progress.quantiles) {
-    message("...in progress ", round(100 * i / candidates.size), "%")
+  gamma.ratio = Best.Ratio(gamma.coeff)
+  log.spread = logp1 * gamma.ratio[2] - logp2 * gamma.ratio[1]
+  price.spread = exp(logp1) * gamma.ratio[2] - exp(logp2) * gamma.ratio[1]
+  if (sd(log.spread) >= max.risk.sd || is.null(Stationary.Test(log.spread))) {
+    next
   }
+
+  position.cost = max(abs(price.spread))  # Transaction costs and bid-ask spread ignored.
+  spread.analysis = Spread.Analysis(spread=log.spread)
+  tradable.pairs[i, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
 }
 
 
