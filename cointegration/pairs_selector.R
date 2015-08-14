@@ -90,8 +90,9 @@ for (i in 1:index.size) {
   current.frame = row$Path %>%
     read.csv(nrows=rows.to.read) %>%
     tbl_df() %>%
-    mutate(Date=as.Date(Date), Price=as.numeric(Adj.Close)) %>%
+    mutate(Date=as.Date(Date), Price=as.numeric(Close)) %>%   # for bigger periods Adj.Close is better
     filter(Date >= period.start, Date <= period.end) %>%
+    arrange(Date) %>%
     select(Date, Price)
 
   if (Check.Sanity(symbol, current.frame)) {
@@ -398,7 +399,7 @@ for (i in 1:candidates.size) {
   tradable.pairs[i, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
 
   # Spread time series.
-  column.name = paste0(symbol1, ".", symbol2)
+  column.name = paste0(pair[[1]], ".", pair[[2]])
   spread.time.series[[column.name]] = log.spread
 }
 
