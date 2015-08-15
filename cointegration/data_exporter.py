@@ -7,6 +7,9 @@ import csv
 import itertools
 
 
+MAX_PAIRS = 10
+
+
 def read_csv_rows(file_name, callback=lambda row: row):
     with open(file_name, "rb") as file_:
         reader = csv.reader(file_, delimiter=',')
@@ -26,7 +29,7 @@ def main():
     pairs_data = read_csv_rows("result-tradable-pairs.csv", callback=lambda row: row[1:])
     strategies = read_csv_rows("result-strategies.csv")
     index = { ".".join(pair[0:2]): pair for pair in pairs_data }
-    merged = [strategy + index.get(strategy[0]) for strategy in itertools.islice(strategies, 0, 5)]
+    merged = [strategy + index.get(strategy[0]) for strategy in itertools.islice(strategies, 0, MAX_PAIRS)]
     export_to_py(merged)
 
 
