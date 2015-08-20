@@ -17,6 +17,8 @@ UNWIND = 2
 
 class Pair:
     def __init__(self, symbols, num1, num2, mean, eps, delta):
+        assert eps < delta
+
         self.symbol1, self.symbol2 = symbols
         self.num1 = num1
         self.num2 = num2
@@ -115,7 +117,7 @@ def handle_data(context, data):
                 if pair.state == PUT_ON and pair.is_narrow(spread):
                     pair.cancel(order1.status == OPEN, order2.status == OPEN)
                     vlog("CANCEL PUT ON", pair, context)
-                if pair.state == UNWIND and pair.is_wide(spread):
+                if pair.state == UNWIND and (pair.is_wide(spread) and numpy.sign(spread) == pair.direction):
                     vlog("bad unwind", pair, context)
 
             if order1.status == FILLED and order2.status == FILLED:
@@ -138,7 +140,7 @@ def handle_data(context, data):
                 vlog("UNWIND", pair, context)
 
         # Add a record
-        record(**{pair.name(): spread * 100})
+        record(**{pair.name(): spread})
 
 
 def vlog(msg, pair, context):
