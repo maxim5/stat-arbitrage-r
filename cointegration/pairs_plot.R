@@ -3,8 +3,9 @@
 suppressMessages(library(ggplot2))
 suppressMessages(require(reshape2))
 
-
+invisible(Sys.setlocale("LC_TIME", "en_US.UTF-8"))
 load("pairs.RData")
+
 
 Plot.Price = function(symbol1, symbol2) {
   series1 = all.logs[[symbol1]]
