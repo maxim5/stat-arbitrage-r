@@ -6,19 +6,58 @@ import math
 import numpy
 
 
-def approx_rational(val, limit=25):
-    val, last_num, num = ((-val, -1, int(-val)) if val < 0 else (val, 1, int(val)))
-    last_den, den = 0, 1
-    rest, quot = val, int(val)
-    while abs(rest - quot) > 0.00001:
-        rest = 1.0 / (rest - quot)
-        quot = int(rest)
-        next_num = quot * num + last_num
-        next_den = quot * den + last_den
-        if abs(next_num) > limit or abs(next_den) > limit:
-            break
-        last_num, num, last_den, den = (num, next_num, den, next_den)
-    return num, den, val - float(num) / den
+def initialize(context):
+    set_symbol_lookup_date("2014-01-01")
+
+    context.pairs = (
+
+    )
+
+
+def handle_data(context, data):
+    for pair in context.pairs:
+        price1 = data[pair.symbol1].price
+        price2 = data[pair.symbol2].price
+        spread = pair.spread(price1, price2)
+
+        context.price = (price1, price2)
+
+        if pair.orders:
+            # We are in the middle of something?
+            order1 = get_order(pair.orders[0])
+            order2 = get_order(pair.orders[1])
+
+            if order1.status == OPEN or order2.status == OPEN:
+                # Open orders. Check if the market went against us
+                if pair.state == PUT_ON and pair.is_good_to_unwind(spread):
+                    vlog("bad put on", pair, context)
+                if pair.state == UNWIND and pair.is_good_to_put_on(spread) and numpy.sign(spread) == pair.direction:
+                    vlog("bad unwind", pair, context)
+
+            if order1.status == FILLED and order2.status == FILLED:
+                # Both filled: all normal
+                pair.orders_filled(spread)
+                vlog("filled ok", pair, context)
+
+        if not pair.orders:
+            # Put on or unwind
+            if pair.state == READY and pair.is_good_to_put_on(spread):
+                pair.put_on(price1, price2)
+                vlog("PUT ON", pair, context)
+            elif pair.state == PUT_ON and pair.is_good_to_unwind(spread):
+                pair.unwind()
+                vlog("UNWIND", pair, context)
+
+        # Add a record
+        if len(context.pairs) < 5:
+            record(**{pair.name(): spread})
+        else:
+            record(leverage=context.account.leverage, total_positions_value=context.account.total_positions_value)
+
+
+########################################################################################################################
+# Pair
+########################################################################################################################
 
 
 OPEN = 0
@@ -31,18 +70,22 @@ UNWIND = 2
 
 
 class Pair:
-    def __init__(self, symbols, gamma, mean, eps, delta):
+    def __init__(self, symbols, gamma, mean, sd, delta, eps):
+        assert symbols[0], symbols[1]
         assert eps < delta
 
         self.symbol1, self.symbol2 = symbols
         self.gamma = gamma
         self.mean = mean
-        self.eps = eps
+        self.sd = sd
         self.delta = delta
+        self.eps = eps
 
         self.state = READY
         self.direction = 0
         self.orders = ()
+        self.put_on_spread = 0      # spread when filled
+        self.total_spread = 0
 
 
     def name(self):
@@ -85,89 +128,42 @@ class Pair:
         assert order_id1 and order_id2
 
 
-    def cancel(self, open1, open2):
-        if open1:
-            cancel_order(self.orders[0])
-        else:
-            order_target(self.symbol1, 0)
-        if open2:
-            cancel_order(self.orders[1])
-        else:
-            order_target(self.symbol2, 0)
-
-
-    def complete(self):
+    def orders_filled(self, spread):
         self.orders = ()
         if self.state == UNWIND:
             self.state = READY
             self.direction = 0
-
-
-    def revert(self):
-        self.orders = ()
-        if self.state == PUT_ON:
-            self.state = READY
-            self.direction = 0
-
-
-def initialize(context):
-    set_symbol_lookup_date("2015-01-01")
-
-    context.pairs = (
-
-    )
-
-
-def handle_data(context, data):
-    for pair in context.pairs:
-        context.data1_ = data[pair.symbol1]
-        context.data2_ = data[pair.symbol2]
-        spread = pair.spread(context.data1_.price, context.data2_.price)
-
-        if pair.orders:
-            # We are in the middle of something?
-            order1 = get_order(pair.orders[0])
-            order2 = get_order(pair.orders[1])
-
-            if order1.status == OPEN or order2.status == OPEN:
-                # Open orders. Check if the market went against us
-                if pair.state == PUT_ON and pair.is_good_to_unwind(spread):
-                    pair.cancel(order1.status == OPEN, order2.status == OPEN)
-                    vlog("CANCEL PUT ON", pair, context)
-                if pair.state == UNWIND and (pair.is_good_to_put_on(spread) and numpy.sign(spread) == pair.direction):
-                    vlog("bad unwind", pair, context)
-
-            if order1.status == FILLED and order2.status == FILLED:
-                # Both filled: all normal
-                pair.complete()
-                vlog("filled ok", pair, context)
-
-            if (order1.status == CANCELLED or order2.status == CANCELLED) and (not context.portfolio.positions):
-                # Both cancelled: revert
-                pair.revert()
-                vlog("cancelled ok", pair, context)
-
-        if not pair.orders:
-            # Put on or unwind
-            if pair.state == READY and pair.is_good_to_put_on(spread):
-                pair.put_on(context.data1_.price, context.data2_.price)
-                vlog("PUT ON", pair, context)
-            elif pair.state == PUT_ON and pair.is_good_to_unwind(spread):
-                pair.unwind()
-                vlog("UNWIND", pair, context)
-
-        # Add a record
-        if len(context.pairs) < 5:
-            record(**{pair.name(): spread})
+            self.total_spread += abs(self.put_on_spread - spread) if self.put_on_spread else 0
+            self.put_on_spread = 0
         else:
-            record(leverage=context.account.leverage, total_positions_value=context.account.total_positions_value)
+            self.put_on_spread = spread
+
+
+########################################################################################################################
+# Utils
+########################################################################################################################
+
+
+def approx_rational(val, limit):
+    val, last_num, num = ((-val, -1, int(-val)) if val < 0 else (val, 1, int(val)))
+    last_den, den = 0, 1
+    rest, quot = val, int(val)
+    while abs(rest - quot) > 0.00001:
+        rest = 1.0 / (rest - quot)
+        quot = int(rest)
+        next_num = quot * num + last_num
+        next_den = quot * den + last_den
+        if abs(next_num) > limit or abs(next_den) > limit:
+            break
+        last_num, num, last_den, den = (num, next_num, den, next_den)
+    return num, den, val - float(num) / den
 
 
 def vlog(msg, pair, context):
     price_info = "[%s: price=%.2f log=%.3f] [%s: price=%.2f log=%.3f] [spread=%+.4f]" % \
-                 (pair.symbol1.symbol, context.data1_.price, math.log(context.data1_.price),
-                  pair.symbol2.symbol, context.data2_.price, math.log(context.data2_.price),
-                  pair.spread(context.data1_.price, context.data2_.price))
+                 (pair.symbol1.symbol, context.price[0], math.log(context.price[0]),
+                  pair.symbol2.symbol, context.price[1], math.log(context.price[1]),
+                  pair.spread(context.price[0], context.price[1]))
 
     portfolio_info = "[portfolio: value=%.2f cash=%.2f pos=%d pos-value=%.2f]" % \
                      (context.portfolio.portfolio_value, context.portfolio.cash,
