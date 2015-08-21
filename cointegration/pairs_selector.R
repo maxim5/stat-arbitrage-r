@@ -250,40 +250,6 @@ Stationary.Test = function(series) {
 }
 
 
-########################################################################################################################
-# More detailed analysis.
-########################################################################################################################
-
-
-# Finds the best ratio for the gamma coefficient, assuming it's greater than or equal to 1.
-# The reason is that it's impossible to buy fractions of shares.
-# Note that the more maximum limit is, the more precise is the ratio, but also the bigger bugdet is needed to trade the
-# pair. Hence the function tries to find an approximation with smallest values possible.
-Best.Ratio = function(gamma, max=50) {
-  a = 10000
-  b = 2
-
-  sign = sign(gamma)
-  gamma = abs(gamma)
-  if (gamma > max) {
-    return (c(max, sign * 1, gamma - max))
-  }
-
-  min = c(1000000, 0, 0)
-  for (n in 1:max) {
-    for (m in 1:n) {
-      error = abs(gamma - (n / m))
-      value = a * error + b * n
-      if (value < min[1]) {
-        min = c(value, n, sign * m, error)
-      }
-    }
-  }
-
-  return (min[-1])
-}
-
-
 # Performs the analysis of the spread series.
 Spread.Analysis = function(spread, zero.count=NULL) {
   if (is.null(zero.count)) {
@@ -312,10 +278,6 @@ cointegrated.pairs = Empty.DF(candidates.size,
                                       "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD",
                                       "KPSS.Stat", "KPSS.P", "ADF.P", "PP.P", "LB.P",
                                       "Return.Corr", "Log.Price.Corr"))
-
-tradable.pairs = Empty.DF(candidates.size,
-                          names=c("Symbol1", "Symbol2", "Gamma.Exact", "Gamma.Num", "Gamma.Denom", "Gamma.Error",
-                                  "Position.Cost", "Zero.Count", "Profitability", "Spread.Mean", "Spread.SD"))
 
 spread.time.series = Empty.DF(nrow(all.logs), names=c())
 
@@ -380,27 +342,9 @@ for (i in 1:candidates.size) {
   logs.corr = logs.corr.matrix[symbol1, symbol2]
   cointegrated.pairs[i, ] = c(pair, gamma.coeff, spread.analysis, stationarity, return.corr, logs.corr)
 
-  # Tradable pairs: some fraction of co-cointegrated pairs.
-  if (pair[[1]] != symbol1) {
-    tmp = logp1
-    logp1 = logp2
-    logp2 = tmp
-  }
-
-  gamma.ratio = Best.Ratio(gamma.coeff)
-  log.spread = logp1 * gamma.ratio[2] - logp2 * gamma.ratio[1]
-  price.spread = exp(logp1) * gamma.ratio[2] - exp(logp2) * gamma.ratio[1]
-  if (sd(log.spread) >= max.risk.sd || is.null(Stationary.Test(log.spread))) {
-    next
-  }
-
-  position.cost = max(abs(price.spread))  # Transaction costs and bid-ask spread ignored.
-  spread.analysis = Spread.Analysis(spread=log.spread)
-  tradable.pairs[i, ] = c(pair, gamma.coeff, gamma.ratio, position.cost, spread.analysis)
-
   # Spread time series.
   column.name = paste0(pair[[1]], ".", pair[[2]])
-  spread.time.series[[column.name]] = log.spread
+  spread.time.series[[column.name]] = test.result$series
 }
 
 
@@ -426,14 +370,9 @@ Report.DF = function(frame, description, file.name) {
 
 cointegrated.pairs = cointegrated.pairs %>%
   Clean.DF() %>%
-  arrange(KPSS.Stat) %>%
+  arrange(desc(Profitability)) %>%
   Report.DF(description="cointegrated pairs", file.name="result-cointegrated-pairs.csv")
 
-tradable.pairs = tradable.pairs %>%
-  Clean.DF() %>%
-  arrange(desc(Profitability)) %>%
-  Report.DF(description="tradable pairs", file.name="result-tradable-pairs.csv")
-  
 spread.time.series = spread.time.series %>% tbl_df()
 message("Spreads: ", ncol(spread.time.series))
 print(spread.time.series, n=10)
