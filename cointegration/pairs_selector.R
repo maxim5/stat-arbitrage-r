@@ -24,7 +24,7 @@ index.table = index.path %>%
   filter(!is.na(From.Date), !is.na(To.Date), Rows.Number > 0)
 message("Read ", nrow(index.table), " non-empty rows")
 
-period.start = as.Date("2015-01-01")
+period.start = as.Date("2014-01-01")
 period.end = as.Date("2015-06-30")
 message("Filtering rows available from ", period.start, " to ", period.end)
 index.table = index.table %>% 
@@ -320,7 +320,7 @@ tradable.pairs = Empty.DF(candidates.size,
 spread.time.series = Empty.DF(nrow(all.logs), names=c())
 
 # Maximum risk allowed for trading.
-max.risk.sd = 0.02
+max.risk.sd = 0.3
 
 index = 1
 progress.quantiles = round(quantile(1:candidates.size, seq(0, 1, by=0.05)))
