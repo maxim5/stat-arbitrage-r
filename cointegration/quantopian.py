@@ -17,7 +17,7 @@ def initialize(context):
         date_rule=date_rules.month_end(days_offset=2),
         time_rule=time_rules.market_close(minutes=1),
         half_days=True
-      )
+    )
 
 
 def handle_data(context, data):
@@ -55,15 +55,15 @@ def handle_data(context, data):
                 vlog("UNWIND", pair, context)
 
         # Add a record
-        if len(context.pairs) < 5:
-            record(**{pair.name(): spread})
+        if len(context.pairs) <= 5:
+            record(**{pair.name(): spread * 100})
         else:
             record(leverage=context.account.leverage, total_positions_value=context.account.total_positions_value)
 
 
 def report_returns(context, data):
     for pair in context.pairs:
-        log.info("%s: %.3f" % (pair.name(), pair.total_spread))
+        log.info("%s: %.3f" % (pair.name(), pair.total_return))
 
 
 ########################################################################################################################
@@ -95,8 +95,8 @@ class Pair:
         self.state = READY
         self.direction = 0
         self.orders = ()
-        self.put_on_spread = 0      # spread when filled
-        self.total_spread = 0
+        self.put_on_spread = 0      # spread when order is filled
+        self.total_return = 0
 
 
     def name(self):
@@ -123,7 +123,7 @@ class Pair:
         direction = numpy.sign(spread)
 
         order_id1 = order_target(self.symbol1, -shares1 * direction)
-        order_id2 = order_target(self.symbol2, shares2 * direction)
+        order_id2 = order_target(self.symbol2, shares2 * direction * numpy.sign(self.gamma))
         assert order_id1 and order_id2
 
         self.state = PUT_ON
@@ -142,9 +142,11 @@ class Pair:
     def orders_filled(self, spread):
         self.orders = ()
         if self.state == UNWIND:
+            if self.put_on_spread:
+                return_ = self.put_on_spread - spread if self.direction > 0 else spread - self.put_on_spread
+                self.total_return += return_
             self.state = READY
             self.direction = 0
-            self.total_spread += abs(self.put_on_spread - spread) if self.put_on_spread else 0
             self.put_on_spread = 0
         else:
             self.put_on_spread = spread
