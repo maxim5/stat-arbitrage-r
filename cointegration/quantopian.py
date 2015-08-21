@@ -10,8 +10,14 @@ def initialize(context):
     set_symbol_lookup_date("2014-01-01")
 
     context.pairs = (
-
     )
+
+    schedule_function(
+        func=report_returns,
+        date_rule=date_rules.month_end(days_offset=2),
+        time_rule=time_rules.market_close(minutes=1),
+        half_days=True
+      )
 
 
 def handle_data(context, data):
@@ -53,6 +59,11 @@ def handle_data(context, data):
             record(**{pair.name(): spread})
         else:
             record(leverage=context.account.leverage, total_positions_value=context.account.total_positions_value)
+
+
+def report_returns(context, data):
+    for pair in context.pairs:
+        log.info("%s: %.3f" % (pair.name(), pair.total_spread))
 
 
 ########################################################################################################################
