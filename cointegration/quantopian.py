@@ -34,7 +34,8 @@ def handle_data(context, data):
             order2 = get_order(pair.orders[1])
 
             if order1.status == OPEN or order2.status == OPEN:
-                # Open orders. Check if the market went against us
+                # Open orders. Check if the market went against us.
+                # Indicates the put on / unwind values are too close (intraday volatility is too high).
                 if pair.state == PUT_ON and pair.is_good_to_unwind(spread):
                     vlog("bad put on", pair, context)
                 if pair.state == UNWIND and pair.is_good_to_put_on(spread) and numpy.sign(spread) == pair.direction:
