@@ -17,11 +17,11 @@ def read_csv_rows(file_name, callback=lambda row: row):
 
 
 def export_to_py(data):
-    print "context.pairs = ("
+    print "    context.pairs = ("
     for row in data:
-        print "    Pair(symbols=symbols('%s', '%s'), gamma=%.6f, mean=%.6f, sd=%.6f, delta=%.6f, eps=0)," % \
+        print "        Pair(symbols=symbols('%s', '%s'), gamma=%.6f, mean=%.6f, sd=%.6f, delta=%.6f, eps=0)," % \
               tuple([row[i] for i in [0, 1]] + [float(row[i]) for i in [2, 5, 6, 6]])
-    print ")"
+    print "    )"
 
 
 def main():
