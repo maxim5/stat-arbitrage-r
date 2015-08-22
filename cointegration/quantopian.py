@@ -154,6 +154,14 @@ class Pair:
         shares1 = -den * direction
         shares2 = num * direction * numpy.sign(self.gamma)
 
+        # Allowed cost should depend on the riskiness of the pair, but it's fixed right now.
+        allowed_cost = 500
+        spread_cost = abs(shares1 * prices[0] + shares2 * prices[1])
+        if spread_cost < allowed_cost:
+            mult = math.floor(allowed_cost / spread_cost)
+            shares1 *= mult
+            shares2 *= mult
+
         order_id1 = order(self.symbols[0], shares1)
         order_id2 = order(self.symbols[1], shares2)
         assert order_id1 and order_id2
