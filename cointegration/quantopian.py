@@ -116,14 +116,16 @@ class Pair:
 
 
     def put_on(self, price1, price2):
-        share_ratio = self.gamma * price1 / price2
-        shares2, shares1, error = approx_rational(share_ratio, limit=50)
+        share_ratio = abs(self.gamma * price1 / price2)
+        num, den, error = approx_rational(share_ratio, limit=50)
 
         spread = self.spread(price1, price2)
         direction = numpy.sign(spread)
+        shares1 = -den * direction
+        shares2 = num * direction * numpy.sign(self.gamma)
 
-        order_id1 = order_target(self.symbol1, -shares1 * direction)
-        order_id2 = order_target(self.symbol2, shares2 * direction * numpy.sign(self.gamma))
+        order_id1 = order_target(self.symbol1, shares1)
+        order_id2 = order_target(self.symbol2, shares2)
         assert order_id1 and order_id2
 
         self.state = PUT_ON
@@ -158,8 +160,15 @@ class Pair:
 
 
 def approx_rational(val, limit):
-    val, last_num, num = ((-val, -1, int(-val)) if val < 0 else (val, 1, int(val)))
-    last_den, den = 0, 1
+    """
+    Approximates the float value by a ratio of two integers.
+    Works with positive values only.
+
+    :param val: a positive float value
+    :param limit: a limit for both numerator and denominator
+    :return: a triple of numerator, denominator and an error
+    """
+    last_num, num, last_den, den = 1, int(val), 0, 1
     rest, quot = val, int(val)
     while abs(rest - quot) > 0.00001:
         rest = 1.0 / (rest - quot)
