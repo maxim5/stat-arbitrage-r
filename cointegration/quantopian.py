@@ -18,17 +18,8 @@ def initialize(context):
     context.pairs = (
     )
 
-    schedule_function(
-        func=report_profits,
-        date_rule=date_rules.month_end(days_offset=2),
-        time_rule=time_rules.market_close(minutes=1),
-        half_days=True
-    )
-
 
 def handle_data(context, data):
-    positions = context.portfolio.positions
-
     for pair in context.pairs:
         context.prices = (data[pair.symbols[0]].price, data[pair.symbols[1]].price)
         spread = pair.spread(context.prices)
@@ -48,8 +39,6 @@ def handle_data(context, data):
 
             if order1.status == FILLED and order2.status == FILLED:
                 # Both filled: all normal
-                if pair.state == PUT_ON:
-                    pair.fix_put_on_cost(positions.get(pair.symbols[0]), positions.get(pair.symbols[1]))
                 pair.orders_filled()
                 vlog("filled ok", pair, context)
 
@@ -60,7 +49,6 @@ def handle_data(context, data):
                 vlog("PUT ON", pair, context)
             elif pair.state == PUT_ON and pair.is_good_to_unwind(spread):
                 pair.unwind()
-                pair.fix_unwind_cost(positions.get(pair.symbols[0]), positions.get(pair.symbols[1]))
                 vlog("UNWIND", pair, context)
 
         # Add a record
@@ -70,39 +58,9 @@ def handle_data(context, data):
             record(leverage=context.account.leverage)
 
 
-def report_profits(context, data):
-    for pair in context.pairs:
-        profit = sum([pos.profit() for pos in pair.all_positions])
-        log.info("%s: profit=%.3f (%d taken)" % (pair.name(), profit, len(pair.all_positions)))
-
-
 ########################################################################################################################
 # Pair
 ########################################################################################################################
-
-
-class Position:
-    def __init__(self, pos1, pos2):
-        self.put_on_cost = self.position_cost(pos1) + self.position_cost(pos2)
-        self.unwind_cost = 0
-
-
-    def set_unwind(self, pos1, pos2):
-        self.unwind_cost = self.position_market_price(pos1) + self.position_market_price(pos2)
-
-
-    def profit(self):
-        return self.unwind_cost - self.put_on_cost if self.unwind_cost else 0
-
-
-    @staticmethod
-    def position_cost(pos):
-        return pos.cost_basis * pos.amount
-
-
-    @staticmethod
-    def position_market_price(pos):
-        return pos.last_sale_price * pos.amount
 
 
 READY = 0
@@ -126,8 +84,6 @@ class Pair:
         self.direction = 0
         self.orders = ()
         self.shares = ()
-
-        self.all_positions = []
 
 
     def name(self):
@@ -185,16 +141,6 @@ class Pair:
         if self.state == UNWIND:
             self.state = READY
             self.direction = 0
-
-
-    def fix_put_on_cost(self, pos1, pos2):
-        position = Position(pos1, pos2)
-        self.all_positions.append(position)
-
-
-    def fix_unwind_cost(self, pos1, pos2):
-        last_position = self.all_positions[-1]
-        last_position.set_unwind(pos1, pos2)
 
 
 ########################################################################################################################
