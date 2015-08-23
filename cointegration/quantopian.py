@@ -39,7 +39,6 @@ class PairsTrader:
         self.context = context
         self._current = None
         self.pairs = (
-            Pair(symbols=symbols('FDIS', 'FAD'), gamma=1.240485, mean=-1.452239, sd=0.012269, delta=0.02, eps=0),
         )
 
 
