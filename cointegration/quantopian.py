@@ -6,56 +6,107 @@ import math
 import numpy
 
 
-# Order constants
-OPEN = 0
-FILLED = 1
-CANCELLED = 2
+########################################################################################################################
+# Main
+########################################################################################################################
 
 
 def initialize(context):
     set_symbol_lookup_date("2014-01-01")
-
-    context.pairs = (
-    )
+    context.pairs_trader = PairsTrader(context)
 
 
 def handle_data(context, data):
-    for pair in context.pairs:
-        context.prices = (data[pair.symbols[0]].price, data[pair.symbols[1]].price)
-        spread = pair.spread(context.prices)
+    try:
+        context.pairs_trader.handle(data)
+    except Exception as e:
+        log.error(e)
+
+
+########################################################################################################################
+# Trader
+########################################################################################################################
+
+
+# Order constants
+ORDER_OPEN = 0
+ORDER_FILLED = 1
+ORDER_CANCELLED = 2
+
+
+class PairsTrader:
+    def __init__(self, context):
+        self.context = context
+        self._current = None
+        self.pairs = (
+            Pair(symbols=symbols('FDIS', 'FAD'), gamma=1.240485, mean=-1.452239, sd=0.012269, delta=0.02, eps=0),
+        )
+
+
+    def handle(self, data):
+        for pair in self.pairs:
+            prices = (data[pair.symbols[0]].price, data[pair.symbols[1]].price)
+            self.handle_pair(pair, prices)
+
+
+    def handle_pair(self, pair, prices):
+        spread = pair.spread(prices)
+        self._current = { "pair": pair, "prices": prices, "spread": spread }
 
         if pair.orders:
             # We are in the middle of something?
             order1 = get_order(pair.orders[0])
             order2 = get_order(pair.orders[1])
 
-            if order1.status == OPEN or order2.status == OPEN:
+            if order1.status == ORDER_OPEN or order2.status == ORDER_OPEN:
                 # Open orders. Check if the market went against us.
                 # Indicates the put on / unwind values are too close (intraday volatility is too high).
                 if pair.state == PUT_ON and pair.is_good_to_unwind(spread):
-                    vlog("bad put on", pair, context)
+                    self.vlog("bad put on")
                 if pair.state == UNWIND and pair.is_good_to_put_on(spread) and numpy.sign(spread) == pair.direction:
-                    vlog("bad unwind", pair, context)
+                    self.vlog("bad unwind")
 
-            if order1.status == FILLED and order2.status == FILLED:
+            if order1.status == ORDER_FILLED and order2.status == ORDER_FILLED:
                 # Both filled: all normal
                 pair.orders_filled()
-                vlog("filled ok", pair, context)
+                self.vlog("filled ok")
 
         if not pair.orders:
             # Put on or unwind
             if pair.state == READY and pair.is_good_to_put_on(spread):
-                pair.put_on(context.prices, spread)
-                vlog("PUT ON", pair, context)
+                pair.put_on(prices, spread)
+                self.vlog("PUT ON")
             elif pair.state == PUT_ON and pair.is_good_to_unwind(spread):
                 pair.unwind()
-                vlog("UNWIND", pair, context)
+                self.vlog("UNWIND")
 
         # Add a record
-        if len(context.pairs) <= 5:
+        self.add_record()
+
+
+    def add_record(self):
+        if len(self.pairs) <= 5:
+            pair = self._current.get("pair")
+            spread = self._current.get("spread")
             record(**{pair.name(): spread * 100})
         else:
-            record(leverage=context.account.leverage)
+            record(leverage=self.context.account.leverage)
+
+
+    def vlog(self, msg):
+        pair = self._current.get("pair")
+        prices = self._current.get("prices")
+        spread = self._current.get("spread")
+        price_info = "[%s: price=%.2f log=%.3f] [%s: price=%.2f log=%.3f] [spread=%+.4f]" % \
+                     (pair.symbols[0].symbol, prices[0], math.log(prices[0]),
+                      pair.symbols[1].symbol, prices[1], math.log(prices[1]),
+                      spread)
+
+        portf = self.context.portfolio
+        portfolio_info = "[portfolio: value=%.2f cash=%.2f pos=%d pos-value=%.2f]" % \
+                         (portf.portfolio_value, portf.cash, len(portf.positions), portf.positions_value)
+
+        print "%9s %15s %s %s" % (pair.name(), msg, price_info, portfolio_info)
 
 
 ########################################################################################################################
@@ -168,16 +219,3 @@ def approx_rational(val, limit):
             break
         last_num, num, last_den, den = (num, next_num, den, next_den)
     return num, den, val - float(num) / den
-
-
-def vlog(msg, pair, context):
-    price_info = "[%s: price=%.2f log=%.3f] [%s: price=%.2f log=%.3f] [spread=%+.4f]" % \
-                 (pair.symbols[0].symbol, context.prices[0], math.log(context.prices[0]),
-                  pair.symbols[1].symbol, context.prices[1], math.log(context.prices[1]),
-                  pair.spread(context.prices))
-
-    portfolio_info = "[portfolio: value=%.2f cash=%.2f pos=%d pos-value=%.2f]" % \
-                     (context.portfolio.portfolio_value, context.portfolio.cash,
-                      len(context.portfolio.positions), context.portfolio.positions_value)
-
-    print "%9s %15s %s %s" % (pair.name(), msg, price_info, portfolio_info)
