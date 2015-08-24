@@ -119,7 +119,7 @@ UNWIND = 2
 
 
 class Pair:
-    def __init__(self, symbols, gamma, mean, sd, delta, eps):
+    def __init__(self, symbols, gamma, mean, sd, delta, eps, max_shares=50, max_spread_cost=1000):
         assert symbols[0], symbols[1]
         assert eps < delta
 
@@ -129,6 +129,8 @@ class Pair:
         self.sd = sd
         self.delta = delta
         self.eps = eps
+        self.max_shares = max_shares
+        self.max_spread_cost = max_spread_cost
 
         self.state = READY
         self.direction = 0
@@ -154,14 +156,13 @@ class Pair:
 
     def put_on(self, prices, spread):
         share_ratio = abs(self.gamma * prices[0] / prices[1])
-        num, den, error = approx_rational(share_ratio, limit=50)
+        num, den, error = approx_rational(share_ratio, limit=self.max_shares)
 
         direction = numpy.sign(spread)
         shares1 = -den * direction
         shares2 = num * direction * numpy.sign(self.gamma)
 
-        # Allowed cost should depend on the riskiness of the pair, but it's fixed right now.
-        allowed_cost = 500
+        allowed_cost = self.max_spread_cost
         spread_cost = abs(shares1 * prices[0] + shares2 * prices[1])
         if spread_cost < allowed_cost:
             mult = math.floor(allowed_cost / spread_cost)
