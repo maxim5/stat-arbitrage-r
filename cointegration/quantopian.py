@@ -13,7 +13,8 @@ import numpy
 
 def initialize(context):
     set_symbol_lookup_date("2014-01-01")
-    context.pairs_trader = PairsTrader(context)
+    context.pairs_trader = PairsTrader(context, pairs=(
+    ))
 
 
 def handle_data(context, data):
@@ -35,11 +36,10 @@ ORDER_CANCELLED = 2
 
 
 class PairsTrader:
-    def __init__(self, context):
+    def __init__(self, context, pairs):
         self.context = context
         self._current = None
-        self.pairs = (
-        )
+        self.pairs = pairs
 
 
     def handle(self, data):
@@ -96,9 +96,9 @@ class PairsTrader:
         pair = self._current.get("pair")
         prices = self._current.get("prices")
         spread = self._current.get("spread")
-        price_info = "[%s: price=%.2f log=%.3f] [%s: price=%.2f log=%.3f] [spread=%+.4f]" % \
-                     (pair.symbols[0].symbol, prices[0], math.log(prices[0]),
-                      pair.symbols[1].symbol, prices[1], math.log(prices[1]),
+        price_info = "[%s: price=%.2f num=%d] [%s: price=%.2f num=%d [spread=%+.4f]" % \
+                     (pair.symbols[0].symbol, prices[0], pair.shares[0],
+                      pair.symbols[1].symbol, prices[1], pair.shares[1],
                       spread)
 
         portf = self.context.portfolio
@@ -119,7 +119,7 @@ UNWIND = 2
 
 
 class Pair:
-    def __init__(self, symbols, gamma, mean, sd, delta, eps, max_shares=50, max_spread_cost=1000):
+    def __init__(self, symbols, gamma, mean, sd, delta, eps, max_shares=50, max_spread_cost=500):
         assert symbols[0], symbols[1]
         assert eps < delta
 
