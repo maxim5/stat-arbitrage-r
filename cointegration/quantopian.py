@@ -44,8 +44,9 @@ class PairsTrader:
 
     def handle(self, data):
         for pair in self.pairs:
-            prices = (data[pair.symbols[0]].price, data[pair.symbols[1]].price)
-            self.handle_pair(pair, prices)
+            if pair.symbols[0] in data and pair.symbols[1] in data:
+                prices = (data[pair.symbols[0]].price, data[pair.symbols[1]].price)
+                self.handle_pair(pair, prices)
 
 
     def handle_pair(self, pair, prices):
@@ -96,7 +97,7 @@ class PairsTrader:
         pair = self._current.get("pair")
         prices = self._current.get("prices")
         spread = self._current.get("spread")
-        price_info = "[%s: price=%.2f num=%d] [%s: price=%.2f num=%d [spread=%+.4f]" % \
+        price_info = "[%s: price=%.2f num=%d] [%s: price=%.2f num=%d] [spread=%+.4f]" % \
                      (pair.symbols[0].symbol, prices[0], pair.shares[0],
                       pair.symbols[1].symbol, prices[1], pair.shares[1],
                       spread)
